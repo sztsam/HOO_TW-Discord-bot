@@ -1,0 +1,3 @@
+Bot will unpack the update.zip to the src folder.
+the update folder must use a file structure like src folder!
+zip the files inside the update folder and apply update

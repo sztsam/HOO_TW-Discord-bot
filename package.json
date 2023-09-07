@@ -1,0 +1,33 @@
+{
+  "name": "bot",
+  "version": "2.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node ./src/bot.js",
+    "dev": "nodemon ./src/bot.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/builders": "^0.13.0",
+    "@discordjs/rest": "^0.4.1",
+    "@sgratzl/chartjs-chart-boxplot": "^2.3.3",
+    "axios": "^0.27.2",
+    "canvas": "^2.11.0",
+    "chart.js": "^2.9.4",
+    "chartjs-node-canvas": "^3.2.0",
+    "chartjs-plugin-colorschemes": "github:typpo/chartjs-plugin-colorschemes#979ef8e599265f65c85d5dae90b543d5589c734a",
+    "chartjs-plugin-datalabels": "^0.7.0",
+    "cron": "^2.0.0",
+    "decompress": "^4.2.1",
+    "discord-api-types": "^0.33.2",
+    "discord.js": "^14.8.0",
+    "dotenv": "^16.0.1",
+    "jsdom": "^19.0.0",
+    "mongodb": "^5.0.1",
+    "uuid": "^9.0.0"
+  }
+}
