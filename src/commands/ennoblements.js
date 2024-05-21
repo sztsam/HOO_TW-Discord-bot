@@ -150,7 +150,7 @@ module.exports = {
                 )
                 .addBooleanOption(option =>
                     option.setName("all")
-                        .setDescription("Delete all ennoblements nntifications")
+                        .setDescription("Delete all ennoblements notifications")
                         .setNameLocalizations({
                             hu: "mind"
                         })
@@ -305,6 +305,96 @@ module.exports = {
                         })
                         .setDescriptionLocalizations({
                             hu: "Csatornán beállított foglalásjelző lista"
+                        })
+                )
+        )
+        .addSubcommand(command =>
+            command.setName("settings")
+                .setDescription("Settings of ennoblements notifications")
+                .setNameLocalizations({
+                    hu: "beállítások"
+                })
+                .setDescriptionLocalizations({
+                    hu: "Foglalásjelző beállítások"
+                })
+                .addBooleanOption(option =>
+                    option.setName("use_default")
+                        .setDescription("Use the default preset")
+                        .setNameLocalizations({
+                            hu: "alap_beallitás"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Alap beállítás használata"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("guest_mode")
+                        .setDescription("Use of guest mode links")
+                        .setNameLocalizations({
+                            hu: "vendég_mód"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Vendég mód linkek használata"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("village_points")
+                        .setDescription("Show conquered village points")
+                        .setNameLocalizations({
+                            hu: "falu_pont"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Foglalt falu pont mutatása"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("player_points")
+                        .setDescription("Show players points")
+                        .setNameLocalizations({
+                            hu: "játékos_pontok"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Játékos pont mutatása"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("tribe_points")
+                        .setDescription("Show tribe points")
+                        .setNameLocalizations({
+                            hu: "klán_pontok"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Klán pont mutatása"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("old_owner")
+                        .setDescription("Show old village owner")
+                        .setNameLocalizations({
+                            hu: "régi_tulaj"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Régi falu tulajdonos mutatása"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("date_time")
+                        .setDescription("Show date and time")
+                        .setNameLocalizations({
+                            hu: "dátum_idő"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Foglalási dátum és időpont mutatása"
+                        })
+                )
+                .addBooleanOption(option =>
+                    option.setName("relative_time")
+                        .setDescription("Show relative time for current time")
+                        .setNameLocalizations({
+                            hu: "eltelt_idő"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Foglalás időpontjától eltelt idő mutatása"
                         })
                 )
         ),

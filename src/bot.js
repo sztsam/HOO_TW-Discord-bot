@@ -14,7 +14,7 @@ const Chart = require("chart.js");
 const ChartDataLabels = require("chartjs-plugin-datalabels");
 const ChartAutoColors = require("chartjs-plugin-colorschemes");
 require("@sgratzl/chartjs-chart-boxplot");
-const { Client, Collection, Events, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, ActivityType, REST, Routes } = require("discord.js");
+const { Client, Collection, Events, GatewayIntentBits, PermissionsBitField, SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ActivityType, REST, Routes, ChannelType } = require("discord.js");
 
 const DEV = false;
 const BOT_TOKEN = DEV ? process.env.DISCORDJS_DEV_BOT_TOKEN : process.env.DISCORDJS_BOT_TOKEN;
@@ -56,6 +56,17 @@ const lock = {
 	cronjobs: false,
 	cache: false
 };
+const helper = {
+	translation_locale: function (module, locale, preferred_locale) {
+		const locale_short = locale.substring(0, 2);
+		return botSettings.base_config.translations[module][locale_short] ? locale_short : "en";
+	},
+	sleep: function (ms) {
+		return new Promise((resolve) => {
+			setTimeout(resolve, ms);
+		});
+	}
+};
 
 function init_locations() {
 	botSettings.locations = {
@@ -90,14 +101,9 @@ async function init_cache() {
 
 	await update_cached_data();
 }
-function sleep(ms) {
-	return new Promise((resolve) => {
-		setTimeout(resolve, ms);
-	});
-}
 async function update_config() {
-	const updated_base_config = await mongodb.GET_BASE_CONFIG("all");
-	const updated_guilds_config = await mongodb.GET_GUILDS_CONFIG();
+	const updated_base_config = DEV ? mongodb.sample.base_config : await mongodb.GET_BASE_CONFIG("all");
+	const updated_guilds_config = DEV ? await mongodb.FIND_GUILD(BOT_GUILD_ID) : await mongodb.GET_GUILDS_CONFIG();
 	botSettings.base_config = updated_base_config;
 	botSettings.guilds_config = updated_guilds_config;
 }
@@ -105,6 +111,7 @@ async function update_cached_data(type) {
 	delete_unused_files();
 	let folder;
 	let server;
+	let data;
 	switch (type) {
 		case "map":
 			const types = Object.keys(botSettings.base_config.map_data).map(type => `map_${type}`);
@@ -112,7 +119,10 @@ async function update_cached_data(type) {
 				folder = fs.readdirSync(botSettings.locations[type]);
 				for (const file of folder) {
 					server = file.split(".")[0];
-					botSettings.cache[type][server] = fs.readFileSync(`${botSettings.locations[type]}${file}`, "utf8").split("\n").filter(line => line.trim().length > 0);
+					try {
+						data = fs.readFileSync(`${botSettings.locations[type]}${file}`, "utf8").split("\n").filter(line => line.trim().length > 0);
+						botSettings.cache[type][server] = data;
+					} catch (error) { }
 				}
 			}
 			break;
@@ -120,7 +130,10 @@ async function update_cached_data(type) {
 			folder = fs.readdirSync(botSettings.locations["daily_stats"]);
 			for (const file of folder) {
 				server = file.split(".")[0];
-				botSettings.cache["daily_stats"][server] = JSON.parse(fs.readFileSync(`${botSettings.locations["daily_stats"]}${file}`, "utf8"));
+				try {
+					data = JSON.parse(fs.readFileSync(`${botSettings.locations["daily_stats"]}${file}`, "utf8"));
+					botSettings.cache["daily_stats"][server] = data;
+				} catch (error) { }
 			}
 			break;
 		default:
@@ -149,41 +162,15 @@ discordClient.once(Events.ClientReady, async () => {
 	bot_activity_change();
 	add_reactions_to_roles();
 	slash_commands();
-	/*
-	let guildArray = discordClient.guilds.cache.map(guild => guild.name);
-	console.log(guildArray);
-	let membersArray = {};
-	Promise.all(discordClient.guilds.cache.map((guild) => guild.members.fetch().then(members => members.forEach(member => {
-		try {
-			console.log(`${member.user.username}${member.user.tag}`);
-			membersArray[guild.name].push(`${member.user.username}${member.user.tag}`);
-			console.log(membersArray);
-		}
-		catch (error) {
-			membersArray[guild.name] = [];
-			membersArray[guild.name].push(`${member.user.username}${member.user.tag}`);
-		}
-	})))).then(console.log(membersArray));
-	*/
 });
 discordClient.on(Events.MessageCreate, async (message) => {
 	if (message.author.bot) return;
-	if (botSettings.base_config.swear_words.words.some(word => message.content.toLowerCase().includes(word))) {
-		if (Math.random() * 5 > 4) {
-			ai_chatting(message, message.content);
-		}
-		else if (Math.random() * 5 > 2) {
-			const react_emojis = botSettings.base_config.swear_words.react_emojis;
-			try {
-				message.react(react_emojis[Math.floor(Math.random() * react_emojis.length)]);
-			}
-			catch (error) { }
-		}
-		else { }
-	}
-	const ai_bot_chat_channels = botSettings.guilds_config.flatMap(guild => guild.config.ai_bot_chat_channels.length > 0 ? guild.config.ai_bot_chat_channels : []);
-	if (ai_bot_chat_channels.includes(message.channelId)) { ai_chatting(message, message.content); return; }
-	if (message.content.toLowerCase().includes("hoo")) { ai_chatting(message, message.content); }
+	const guild = botSettings.guilds_config.find(guild => guild.guild_id === message.guildId);
+	if (!guild) { return; }
+	swear_words_punishment(message);
+	show_info_tribal_data(false, message, guild);
+	if (guild.config.ai_bot_chat_channels.includes(message.channelId)) { ai_chatting(guild.market, message); return; }
+	if (message.content.toLowerCase().includes("hoo")) { ai_chatting(guild.market, message); }
 	if (message.content.startsWith(botSettings.base_config.prefix)) {
 		console.log(message.content)
 		const [CMD_NAME, ...args] = message.content
@@ -298,8 +285,17 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 		}
 		try {
 			switch (interaction.commandName) {
+				case "guild_settings":
+					command.execute(interaction, set_guild_settings);
+					break;
 				case "ping":
 					command.execute(discordClient, interaction);
+					break;
+				case "info":
+					command.execute(interaction, show_info_tribal_data);
+					break;
+				case "coord_info":
+					command.execute(interaction, set_coord_info);
 					break;
 				case "stat":
 					command.execute(interaction, generate_tribe_chart);
@@ -309,6 +305,9 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 					break;
 				case "ennoblements":
 					command.execute(interaction, set_ennoblements);
+					break;
+				case "swear_words":
+					command.execute(interaction, set_swear_words);
 					break;
 				case "help":
 					command.execute(interaction, help_handler);
@@ -330,12 +329,13 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 		const sub_command = interaction.options._subcommand !== null ? interaction.options.getSubcommand() : "";
 		const focused_option = interaction.options.getFocused(true);
 		const hoisted_options = interaction.options._hoistedOptions;
+		const interaction_guild = botSettings.guilds_config.find(guild => guild.guild_id === interaction.guildId) ?? undefined;
 		let use_locale, choices, filtered_choices, final_choices, option;
 		if (interaction.commandName === "stat") {
-			use_locale = botSettings.base_config.translations.chart.tribe_scope[interaction.locale]["conquer"] ? interaction.locale : "en";
+			use_locale = helper.translation_locale("chart", interaction.locale);
 			switch (focused_option.name) {
 				case "scope":
-					choices = botSettings.base_config.translations.chart.tribe_scope[use_locale][sub_command];
+					choices = botSettings.base_config.translations.chart[use_locale]["tribe_scope"][sub_command];
 					filtered_choices = Object.fromEntries(Object.entries(choices).filter(([key, value]) => value.startsWith(focused_option.value)));
 					final_choices = Object.fromEntries(Object.entries(filtered_choices).slice(0, 20));
 					break;
@@ -355,6 +355,18 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 					choices = botSettings.base_config.chart_tribe_stats.size;
 					final_choices = choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
 					break;
+				case "player":
+					try {
+						option = hoisted_options.filter(option => option.name === "server")[0].value;
+						choices = botSettings.cache.map_player[option].sort(sort_player_by_rank).map(player => { return { id: `${player.split(",")[botSettings.base_config.map_data.player.data.indexOf("id")]}`, name: decodeURIComponent(`${player.split(",")[botSettings.base_config.map_data.player.data.indexOf("name")]}`.replaceAll("+", " ")) } });
+						filtered_choices = choices.filter(choice => choice.name.startsWith(focused_option.value)).splice(0, 20);
+						final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr.id]: curr.name }), {});
+					}
+					catch (error) {
+						filtered_choices = { ["server_error"]: botSettings.base_config.translations.chart[use_locale]["error"]["server_error"] };
+						final_choices = filtered_choices;
+					}
+					break;
 				case "ally":
 					try {
 						option = hoisted_options.filter(option => option.name === "server")[0].value;
@@ -365,7 +377,7 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 						final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
 					}
 					catch (error) {
-						filtered_choices = { ["server_error"]: botSettings.base_config.translations.chart.error[use_locale]["server_error"] };
+						filtered_choices = { ["server_error"]: botSettings.base_config.translations.chart[use_locale]["error"]["server_error"] };
 						final_choices = filtered_choices;
 					}
 					break;
@@ -379,26 +391,70 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 						final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
 					}
 					catch (error) {
-						filtered_choices = { ["server_error"]: botSettings.base_config.translations.chart.error[use_locale]["server_error"] };
+						filtered_choices = { ["server_error"]: botSettings.base_config.translations.chart[use_locale]["error"]["server_error"] };
 						final_choices = filtered_choices;
 					}
 					break;
 				case "type":
-					choices = botSettings.base_config.translations.chart.type[use_locale];
+					choices = botSettings.base_config.translations.chart[use_locale]["type"];
 					final_choices = choices;
 					break;
 				case "style":
-					choices = botSettings.base_config.translations.chart.style[use_locale];
+					choices = botSettings.base_config.translations.chart[use_locale]["style"];
 					final_choices = choices;
 					break;
 				case "color":
-					choices = botSettings.base_config.translations.chart.color[use_locale];
+					choices = botSettings.base_config.translations.chart[use_locale]["color"];
 					final_choices = choices;
 					break
 			}
 		}
+		else if (interaction.commandName === "info") {
+			use_locale = helper.translation_locale("info", interaction.locale);
+			option = hoisted_options?.filter(option => option.name === "server")[0]?.value ?? interaction_guild?.global_world;
+			switch (focused_option.name) {
+				case "server":
+					choices = (await botSettings.base_config.running_servers).filter(server => enabled_markets.includes(server.substring(0, 2)));
+					filtered_choices = choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+					final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+					break;
+				case "player":
+					if (!option) {
+						filtered_choices = { ["server_error"]: botSettings.base_config.translations.info[use_locale]["server_error"] };
+						final_choices = filtered_choices;
+					}
+					else {
+						choices = botSettings.cache.map_player[option].sort(sort_player_by_rank).map(player => { return { id: `${player.split(",")[botSettings.base_config.map_data.player.data.indexOf("id")]}`, name: decodeURIComponent(`${player.split(",")[botSettings.base_config.map_data.player.data.indexOf("name")]}`.replaceAll("+", " ")) } });
+						filtered_choices = choices.filter(choice => choice.name.startsWith(focused_option.value)).splice(0, 20);
+						final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr.id]: curr.name }), {});
+					}
+					break;
+				case "ally":
+					if (!option) {
+						filtered_choices = { ["server_error"]: botSettings.base_config.translations.info[use_locale]["server_error"] };
+						final_choices = filtered_choices;
+					}
+					else {
+						choices = botSettings.cache.map_ally[option].sort(sort_ally_by_rank).map(ally => { return { id: `${ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("id")]}`, name: decodeURIComponent(`${ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("tag")]}`.replaceAll("+", " ")) } });
+						filtered_choices = choices.filter(choice => choice.name.startsWith(focused_option.value)).splice(0, 20);
+						final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr.id]: curr.name }), {});
+					}
+					break;
+			}
+		}
+		else if (interaction.commandName === "coord_info") {
+			use_locale = helper.translation_locale("coord_info", interaction.locale);
+			option = hoisted_options?.filter(option => option.name === "server")[0]?.value ?? interaction_guild?.global_world;
+			switch (focused_option.name) {
+				case "server":
+					choices = (await botSettings.base_config.running_servers).filter(server => enabled_markets.includes(server.substring(0, 2)));
+					filtered_choices = choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+					final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+					break;
+			}
+		}
 		else if (interaction.commandName === "map") {
-			use_locale = botSettings.base_config.translations.map_pic[interaction.locale]["players_points"] ? interaction.locale : "en";
+			use_locale = helper.translation_locale("map_pic", interaction.locale);
 			switch (focused_option.name) {
 				case "server":
 					choices = (await botSettings.base_config.running_servers).filter(server => enabled_markets.includes(server.substring(0, 2)));
@@ -412,7 +468,7 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 			}
 		}
 		else if (interaction.commandName === "ennoblements") {
-			use_locale = botSettings.base_config.translations.ennoblements[interaction.locale]["barbarian"] ? interaction.locale : "en";
+			use_locale = helper.translation_locale("ennoblements", interaction.locale);
 			switch (focused_option.name) {
 				case "server":
 					choices = (await botSettings.base_config.running_servers).filter(server => enabled_markets.includes(server.substring(0, 2)));
@@ -486,6 +542,48 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 					break;
 			}
 		}
+		else if (interaction.commandName === "guild_settings") {
+			use_locale = helper.translation_locale("guild_settings", interaction.locale);
+			switch (focused_option.name) {
+				case "market":
+					choices = botSettings.base_config.markets.map((market) => market.market);
+					filtered_choices = choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+					final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+					break;
+				case "language":
+					choices = Object.keys(botSettings.base_config.translations.guild_settings);
+					filtered_choices = choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+					final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+					break;
+				case "global_world":
+					choices = (await botSettings.base_config.running_servers).filter(server => enabled_markets.includes(server.substring(0, 2)));
+					filtered_choices = choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+					final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+					break;
+				case "global_guild":
+					option = hoisted_options.filter(option => option.name === "global_world")[0];
+					switch (option) {
+						case undefined:
+							if (!interaction_guild || !interaction_guild.global_world) {
+								filtered_choices = { ["server_error"]: botSettings.base_config.translations.guild_settings[use_locale]["server_error"] };
+								final_choices = filtered_choices;
+							}
+							else {
+								choices = botSettings.cache.map_ally[interaction_guild.global_world].sort(sort_ally_by_rank).map(ally => decodeURIComponent(`${ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("tag")]}`.replaceAll("+", " ")));
+								filtered_choices = choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+								final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+							}
+							break;
+						default:
+							choices = botSettings.cache.map_ally[option.value].sort(sort_ally_by_rank).map(ally => decodeURIComponent(`${ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("tag")]}`.replaceAll("+", " ")));
+							filtered_choices = focused_option.value.split("&").length > 1 ?
+								choices.filter(ally => ally.startsWith(focused_option.value.split("&").pop())).map(item => `${focused_option.value.split("&").slice(0, -1).join("&")}&${item}`).splice(0, 20)
+								: choices.filter(choice => choice.startsWith(focused_option.value)).splice(0, 20);
+							final_choices = filtered_choices.reduce((acc, curr) => ({ ...acc, [curr]: curr }), {});
+							break;
+					}
+			}
+		}
 		interaction.respond(
 			Object.entries(final_choices).map(([key, value]) => ({ name: value, value: key })),
 		);
@@ -493,6 +591,11 @@ discordClient.on(Events.InteractionCreate, async (interaction) => {
 			var ally_rank_a = +a.split(',')[botSettings.base_config.map_data.ally.data.indexOf("rank")];
 			var ally_rank_b = +b.split(',')[botSettings.base_config.map_data.ally.data.indexOf("rank")];
 			return ally_rank_a - ally_rank_b;
+		}
+		function sort_player_by_rank(a, b) {
+			var player_rank_a = +a.split(',')[botSettings.base_config.map_data.player.data.indexOf("rank")];
+			var player_rank_b = +b.split(',')[botSettings.base_config.map_data.player.data.indexOf("rank")];
+			return player_rank_a - player_rank_b;
 		}
 	}
 });
@@ -525,8 +628,26 @@ discordClient.on(Events.GuildDelete, async (guild) => {
 	await mongodb.UPDATE_GUILD_CONFIG("config", guild_data);
 	update_config();
 });
+discordClient.on(Events.ChannelDelete, async (channel) => {
+	const guild_data = botSettings.guilds_config.find(guild_config => guild_config.guild_id === channel.guildId);
+	const ennoblements_cronjobs = [...new Set(botSettings.guilds_config.flatMap(guild => guild.config.cronjobs.filter(cronjob => cronjob.type === "ennoblement" && cronjob.play === true && cronjob.channel_id === channel.id)))];
+
+	ennoblements_cronjobs.forEach(cronjob => delete_cronjob(cronjob));
+
+	function delete_cronjob(cronjob) {
+		data = {
+			scope: "guild",
+			guild_id: channel.guildId,
+			guild_name: guild_data.name,
+			market: guild_data.market,
+			cron_id: cronjob.cron_id
+		};
+		cron_jobs("delete", data);
+	}
+})
+
 async function help_handler(interaction) {
-	const use_locale = botSettings.base_config.translations.help[interaction.locale]["error"] ? interaction.locale : "en";
+	const use_locale = helper.translation_locale("help", interaction.locale);
 	const translation = botSettings.base_config.translations.help[use_locale];
 	const options = {
 		command: interaction.options.getSubcommand(),
@@ -594,8 +715,13 @@ async function update_live_servers() {
 	await mongodb.UPDATE_BASE_CONFIG("running_servers", servers);
 
 	const running_servers_continents = {};
+	function get_continent_number(village) {
+		const x = village.split(",")[botSettings.base_config.map_data.village.data.indexOf("x")];
+		const y = village.split(",")[botSettings.base_config.map_data.village.data.indexOf("y")];
+		return `k${y.length > 2 ? y.charAt(0) : 0}${x.length > 2 ? x.charAt(0) : 0}`;
+	}
 	for (const server of Object.keys(botSettings.cache.map_village)) {
-		running_servers_continents[server] = [...new Set(botSettings.cache.map_village[server].map(village => `k${village.split(",")[botSettings.base_config.map_data.village.data.indexOf("y")].charAt(0)}${village.split(",")[botSettings.base_config.map_data.village.data.indexOf("x")].charAt(0)}`))].sort();
+		running_servers_continents[server] = [...new Set(botSettings.cache.map_village[server].map(village => get_continent_number(village)))].sort();
 	}
 	await mongodb.UPDATE_BASE_CONFIG("running_servers_continents", running_servers_continents);
 }
@@ -700,7 +826,14 @@ async function download_map_data() {
 	}
 }
 async function download_daily_stats() {
-	const enabled_markets = botSettings.base_config.markets.filter(market => market.enabled === true).map(market => market.market);
+	const time = new Date();
+	const time_zone_offset = -time.getTimezoneOffset() * 60 * 1000;
+	const utc_time = new Date(time.getTime() - time_zone_offset);
+	const utc_time_hour = utc_time.getHours();
+	const enabled_markets = botSettings.base_config.markets.filter((market) => {
+		const time_to_do = (utc_time_hour + market.timezone) % 24 === 0;
+		return market.enabled && time_to_do ? true : false
+	}).map(market => market.market);
 	const stats = {};
 	const players_on_a_page = 25;
 	await get_market_data_for_all(enabled_markets);
@@ -718,11 +851,12 @@ async function download_daily_stats() {
 	}
 	async function get_market_data(market) {
 		return new Promise(async (resolve, reject) => {
+			const server_regex = new RegExp(`${market}\\w?\\d{1,}`);
 			const servers_of_market = botSettings.base_config.running_servers.filter(server => server.startsWith(market) && !["s", "p", "c"].some((prefix) => server.slice(2).startsWith(prefix)));
 			const servers_sorted = prioritize_server(servers_of_market);
-			const priority_servers_to_download = servers_sorted; //.slice(0, 2); removed disabling older servers
+			const priority_servers_to_download = servers_sorted.slice(0, 2);
 			const daily_stat_cronjobs = botSettings.guilds_config.flatMap(guild => guild.config.cronjobs.filter(cronjob => cronjob.type === "stat" && cronjob.message?.command === "daily" && cronjob.play === true && botSettings.base_config.running_servers.includes(cronjob.message?.server)));
-			const daily_stat_cronjobs_servers = daily_stat_cronjobs.map(cronjob => cronjob.message.server);
+			const daily_stat_cronjobs_servers = daily_stat_cronjobs.map(cronjob => cronjob.message.server).filter(server => server_regex.test(server));
 			const servers_to_download = [...new Set(priority_servers_to_download.concat(daily_stat_cronjobs_servers))];
 			for (const server of servers_to_download) {
 				await get_server_data(server, market);
@@ -741,9 +875,7 @@ async function download_daily_stats() {
 				await Promise.all(promises);
 				botSettings.cache.daily_stats[server] = stats[server];
 				const server_stat_json = JSON.stringify(stats[server]);
-				fs.writeFile(`${botSettings.locations.daily_stats}${server}.json`, server_stat_json, 'utf8', function (error) {
-					if (error) { console.log(error); }
-				});
+				fs.writeFileSync(`${botSettings.locations.daily_stats}${server}.json`, server_stat_json);
 				resolve();
 			} catch (e) { resolve(); }
 		});
@@ -762,11 +894,16 @@ async function download_daily_stats() {
 						stats[server][player_id]["guild"] = table.rows[row].cells[2]?.children[1]?.textContent;
 						stats[server][player_id][type] = +table.rows[row].cells[3].textContent.replaceAll(".", "");
 					}
-					await sleep(100);
+					await helper.sleep(100);
 				}
 				resolve();
 			}
-			catch (error) { console.log(`error: ${server} ${type} ${error}`); resolve(); }
+			catch (error) {
+				if (DEV) {
+					console.log(`error: ${server} ${type} ${error}`);
+				}
+				resolve();
+			}
 		});
 	}
 	function prioritize_server(servers) {
@@ -779,7 +916,8 @@ async function download_daily_stats() {
 	}
 }
 async function set_ennoblements(interaction) {
-	const use_locale = botSettings.base_config.translations.ennoblements[interaction.locale]["command_message"] ? interaction.locale : "en";
+	const guild = botSettings.guilds_config.find(guild => guild.guild_id === interaction.guild.id);
+	const use_locale = helper.translation_locale("ennoblements", interaction.locale);
 	const translation = botSettings.base_config.translations.ennoblements[use_locale]["command_message"];
 	const ennoblements_options = botSettings.base_config.ennoblements.options;
 	const ennoblements_options_indexes = Object.keys(ennoblements_options);
@@ -790,8 +928,8 @@ async function set_ennoblements(interaction) {
 		command: interaction.options.getSubcommand(),
 		channel: interaction.options.getChannel("channel")?.id ?? interaction.channelId
 	};
-	let additional_options, data, tribes;
-	const ennoblements_cronjobs = botSettings.guilds_config.flatMap(guild => guild.config.cronjobs.filter(cronjob => cronjob.type === "ennoblement" && guild.guild_id === options.guild));
+	let additional_options, data, tribes, fields, embed;
+	const ennoblements_cronjobs = guild?.config.cronjobs.filter(cronjob => cronjob.type === "ennoblement") ?? [];
 	switch (options.command) {
 		case "add":
 			additional_options = {
@@ -946,7 +1084,7 @@ async function set_ennoblements(interaction) {
 			additional_options = {
 				channel: interaction.options.getChannel("channel")?.id ?? undefined
 			};
-			const fields = [];
+			fields = [];
 			if (additional_options.channel) {
 				const channel_ennoblements_cronjobs = ennoblements_cronjobs.filter(cronjob => cronjob.channel_id === additional_options.channel);
 				if (channel_ennoblements_cronjobs.length) {
@@ -972,121 +1110,314 @@ async function set_ennoblements(interaction) {
 					return;
 				}
 			}
-			const embed = new EmbedBuilder();
+			embed = new EmbedBuilder();
 			embed.setTitle(translation.list_embed.title);
 			embed.addFields(fields.splice(0, 20));
 			interaction.editReply({ embeds: [embed], ephemeral: true });
+			break;
+		case "settings":
+			additional_options = {
+				use_default: interaction.options.getBoolean("use_default") ?? undefined,
+				guest_mode: interaction.options.getBoolean("guest_mode") ?? undefined,
+				village_points: interaction.options.getBoolean("village_points") ?? undefined,
+				player_points: interaction.options.getBoolean("player_points") ?? undefined,
+				tribe_points: interaction.options.getBoolean("tribe_points") ?? undefined,
+				old_owner: interaction.options.getBoolean("old_owner") ?? undefined,
+				date_time: interaction.options.getBoolean("date_time") ?? undefined,
+				relative_time: interaction.options.getBoolean("relative_time") ?? undefined,
+			};
+			no_option_given = [...new Set(Object.values(additional_options))].every(option => option === undefined);
+			if (no_option_given) {
+				fields = [
+					{
+						name: `\u200B`,
+						value: [
+							`**${translation.settings_embed.use_default}**: ${guild.config.live_ennoblements.use_default ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.guest_mode}**: ${guild.config.live_ennoblements.guest_mode ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.village_points}**: ${guild.config.live_ennoblements.village_points ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.player_points}**: ${guild.config.live_ennoblements.player_points ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.tribe_points}**: ${guild.config.live_ennoblements.tribe_points ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.old_owner}**: ${guild.config.live_ennoblements.old_owner ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.date_time}**: ${guild.config.live_ennoblements.date_time ? ":white_check_mark:" : ":x:"}`,
+							`**${translation.settings_embed.relative_time}**: ${guild.config.live_ennoblements.relative_time ? ":white_check_mark:" : ":x:"}`
+						].join("\n")
+					}
+				];
+				embed = new EmbedBuilder();
+				embed.setTitle(translation.settings_embed.title);
+				embed.addFields(fields);
+				interaction.editReply({ embeds: [embed], ephemeral: true });
+				return;
+			}
+			Object.entries(additional_options).forEach(([key, value]) => {
+				value === undefined ? null : guild.config.live_ennoblements[key] = value;
+			});
+			data = {
+				guild_id: options.guild,
+				guild_name: options.guild_name,
+				active: guild?.active ?? true,
+				live_ennoblements: guild.config.live_ennoblements
+			}
+			await mongodb.UPDATE_GUILD_CONFIG("live_ennoblements", data);
+			interaction.editReply({ content: `${translation["modified"]}`, ephemeral: true });
 			break;
 	}
 }
 async function live_ennoblements() {
 	const botSettings_copy = {
-		base_config: botSettings.base_config,
-		guilds_config: botSettings.guilds_config
+		base_config: JSON.parse(JSON.stringify(botSettings.base_config)),
+		guilds_config: JSON.parse(JSON.stringify(botSettings.guilds_config))
 	};
-	const ennoblements_options = botSettings_copy.base_config.ennoblements.options;
-	const ennoblements_options_indexes = Object.keys(ennoblements_options);
+	const indexes = {
+		ennoblements_options: Object.keys(botSettings_copy.base_config.ennoblements.options),
+		map_ally: botSettings_copy.base_config.map_data.ally.data,
+		map_player: botSettings_copy.base_config.map_data.player.data,
+		map_village: botSettings_copy.base_config.map_data.village.data,
+		ennoblements: botSettings_copy.base_config.map_data.conquer.data
+	};
 	const colors = botSettings_copy.base_config.ennoblements.colors;
+	const translations = botSettings_copy.base_config.translations.ennoblements;
 	const date = new Date();
 	date.setSeconds(0);
 	date.setMilliseconds(0);
-	const date_stamp = (date.getTime() / 1000) - 60;
+	const date_timestamp = (date.getTime() / 1000) - 60;
 	const ennoblements_cronjobs = botSettings_copy.guilds_config.flatMap(guild => guild.config.cronjobs.filter(cronjob => cronjob.type === "ennoblement" && cronjob.play === true));
-	const servers = [...new Set(ennoblements_cronjobs.map(cron => cron.message[ennoblements_options_indexes.indexOf("server")]))];
-	const map_village_indexes = botSettings_copy.base_config.map_data.village.data;
-	const map_player_indexes = botSettings_copy.base_config.map_data.player.data;
-	const map_ally_indexes = botSettings_copy.base_config.map_data.ally.data;
-	const ennoblements_indexes = botSettings_copy.base_config.map_data.conquer.data;
+	const servers = [...new Set(ennoblements_cronjobs.map(cron => cron.message[indexes.ennoblements_options.indexOf("server")]))];
 	servers.forEach(server => get_ennoblements(server));
-
+	function get_continent_number(village) {
+		const x = village[indexes.map_village.indexOf("x")];
+		const y = village[indexes.map_village.indexOf("y")];
+		return `k${y.length > 2 ? y.charAt(0) : 0}${x.length > 2 ? x.charAt(0) : 0}`;
+	}
+	function format_number(num) {
+		return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+	}
 	async function get_ennoblements(server) {
+		if (!botSettings_copy.base_config.running_servers.includes(server)) { return; }
 		const market = botSettings_copy.base_config.markets.find(market => market.market === server.substring(0, 2));
 		if (!market.enabled) { return; }
-		const response = await axios.get(`https://${server}${market.link}/interface.php?func=get_conquer&since=${date_stamp}`);
+		const response = await axios.get(`https://${server}${market.link}/interface.php?func=get_conquer&since=${date_timestamp}`);
+		if (response.data.startsWith("<!DOCTYPE html>")) { return; }
 		const ennoblements = response.data.split("\n");
 		if (ennoblements.toString().length < 5) { return; }
-		const map_village = botSettings.cache["map_village"][server];
-		const map_player = botSettings.cache["map_player"][server];
-		const map_ally = botSettings.cache["map_ally"][server];
+		const map_village = botSettings.cache["map_village"][server].concat();
+		const map_player = botSettings.cache["map_player"][server].concat();
+		const map_ally = botSettings.cache["map_ally"][server].concat();
 		for (const ennoblement of ennoblements) {
-			const ennob_village_id = ennoblement.split(",")[map_village_indexes.indexOf("id")];
-			const ennob_village = map_village.find(village => village.split(",")[map_village_indexes.indexOf("id")] === ennob_village_id).split(",");
-			const ennob_village_name = decodeURIComponent(ennob_village[map_village_indexes.indexOf("name")].replaceAll("+", " "));
-			const ennob_village_coord = `${ennob_village[map_village_indexes.indexOf("x")]}|${ennob_village[map_village_indexes.indexOf("y")]}`;
-			const ennob_village_continent = `k${ennob_village[map_village_indexes.indexOf("y")].charAt(0)}${ennob_village[map_village_indexes.indexOf("x")].charAt(0)}`;
-			const ennob_village_link = `[${ennob_village_name} (${ennob_village_coord}) ${ennob_village_continent.replace("k", "K")}](https://${server}${market.link}/game.php?village=0&screen=info_village&id=${ennob_village_id})`;
-			const ennob_date = new Date(+ennoblement.split(",")[ennoblements_indexes.indexOf("unix_timestamp")] * 1000);
-			const ennob_old_player_id = ennoblement.split(",")[ennoblements_indexes.indexOf("old_owner")];
-			const ennob_old_player = map_player.find(player => player.split(",")[map_player_indexes.indexOf("id")] === ennob_old_player_id)?.split(",");
-			const ennob_old_player_name = typeof ennob_old_player !== "undefined" ? decodeURIComponent(ennob_old_player[map_player_indexes.indexOf("name")].replaceAll("+", " ")) : "barb_player_name";
-			let ennob_old_player_link = typeof ennob_old_player !== "undefined" ? `[${ennob_old_player_name}](https://${server}${market.link}/game.php?village=0&screen=info_player&id=${ennob_old_player_id})` : ennob_old_player_name;
-			const ennob_old_player_ally_id = typeof ennob_old_player !== "undefined" ? ennob_old_player[map_player_indexes.indexOf("ally")] : undefined;
-			const ennob_old_player_ally = typeof ennob_old_player !== "undefined" && ennob_old_player_ally_id !== "0" ? map_ally.find(ally => ally.split(",")[map_ally_indexes.indexOf("id")] === ennob_old_player_ally_id)?.split(",") : "";
-			const ennob_old_player_ally_tag = typeof ennob_old_player !== "undefined" && ennob_old_player_ally_id !== "0" ? decodeURIComponent(ennob_old_player_ally[map_ally_indexes.indexOf("tag")].replaceAll("+", " ")) : "";
-			const ennob_old_player_ally_link = typeof ennob_old_player !== "undefined" && ennob_old_player_ally_id !== "0" ? `[[${ennob_old_player_ally_tag}]](https://${server}${market.link}/game.php?village=0&screen=info_ally&id=${ennob_old_player_ally_id})` : "";
-			const ennob_new_player_id = ennoblement.split(",")[ennoblements_indexes.indexOf("new_owner")];
-			const ennob_new_player = map_player.find(player => player.split(",")[map_player_indexes.indexOf("id")] === ennob_new_player_id).split(",");
-			const ennob_new_player_name = decodeURIComponent(ennob_new_player[map_player_indexes.indexOf("name")].replaceAll("+", " "));
-			const ennob_new_player_link = `[${ennob_new_player_name}](https://${server}${market.link}/game.php?village=0&screen=info_player&id=${ennob_new_player_id})`;
-			const ennob_new_player_ally_id = ennob_new_player[map_player_indexes.indexOf("ally")];
-			const ennob_new_player_ally = ennob_new_player_ally_id !== "0" ? map_ally.find(ally => ally.split(",")[map_ally_indexes.indexOf("id")] === ennob_new_player_ally_id)?.split(",") : "";
-			const ennob_new_player_ally_tag = ennob_new_player_ally_id !== "0" ? decodeURIComponent(ennob_new_player_ally[map_ally_indexes.indexOf("tag")].replaceAll("+", " ")) : "";
-			const ennob_new_player_ally_link = ennob_new_player_ally_id !== "0" ? `[[${ennob_new_player_ally_tag}]](https://${server}${market.link}/game.php?village=0&screen=info_ally&id=${ennob_new_player_ally_id})` : "";
-
-			const cronjobs_for_server = ennoblements_cronjobs.filter(cron => cron.message[ennoblements_options_indexes.indexOf("server")] === server);
-			for (const cronjob of cronjobs_for_server) {
-				const guild_locale = botSettings_copy.guilds_config.find(guild => guild.config.cronjobs.some(cron => cron === cronjob)).market;
-				const use_translation = botSettings_copy.base_config.translations.ennoblements[guild_locale]["barbarian"] ? botSettings_copy.base_config.translations.ennoblements[guild_locale] : botSettings_copy.base_config.translations.ennoblements["en"];
-				if (ennob_old_player_link === "barb_player_name") { ennob_old_player_link = use_translation["barbarian"] }
-				const enabled_continents = cronjob.message[ennoblements_options_indexes.indexOf("continent")].split("&");
+			const noble = {
+				village: {},
+				date: {},
+				old_owner: {
+					ally: {},
+				},
+				new_owner: {
+					ally: {},
+				},
+				_set_village: function () {
+					this.village.id = ennoblement.split(",")[indexes.map_village.indexOf("id")];
+					this.village.data = map_village.find(village => village.split(",")[indexes.map_village.indexOf("id")] === this.village.id).split(",");
+					this.village.name = decodeURIComponent(this.village.data[indexes.map_village.indexOf("name")].replaceAll("+", " "));
+					this.village.coord = `${this.village.data[indexes.map_village.indexOf("x")]}|${this.village.data[indexes.map_village.indexOf("y")]}`;
+					this.village.continent = get_continent_number(this.village.data);
+					this.village.points = this.village.data[indexes.map_village.indexOf("points")];
+					this.village.link = `https://${server}${market.link}/game.php?village=0&screen=info_village&id=${this.village.id}`;
+					this.village.link_guest = `https://${server}${market.link}/guest.php?screen=info_village&id=${this.village.id}`;
+				},
+				_set_date: function () {
+					this.date.unix_timestamp = +ennoblement.split(",")[indexes.ennoblements.indexOf("unix_timestamp")];
+					this.date.unix_date = new Date(this.date.unix_timestamp * 1000);
+					this.date.time_zone_offset = -this.date.unix_date.getTimezoneOffset() * 60 * 1000;
+					this.date.utc = new Date(this.date.unix_date.getTime() - this.date.time_zone_offset);
+					this.date.market = new Date(this.date.utc.getTime() + market.timezone * 60 * 60 * 1000);
+				},
+				_set_old_owner: function () {
+					this.old_owner.id = ennoblement.split(",")[indexes.ennoblements.indexOf("old_owner")];
+					this.old_owner.data = map_player.find(player => player.split(",")[indexes.map_player.indexOf("id")] === this.old_owner.id)?.split(",");
+					this.old_owner.player = typeof this.old_owner.data !== "undefined" ? true : false;
+					if (this.old_owner.player) {
+						this.old_owner.name = decodeURIComponent(this.old_owner.data[indexes.map_player.indexOf("name")].replaceAll("+", " "));
+						this.old_owner.points = this.old_owner.data[indexes.map_player.indexOf("points")];
+						this.old_owner.link = `https://${server}${market.link}/game.php?village=0&screen=info_player&id=${this.old_owner.id}`;
+						this.old_owner.link_guest = `https://${server}${market.link}/guest.php?screen=info_player&id=${this.old_owner.id}`;
+						this.old_owner.ally.id = this.old_owner.data[indexes.map_player.indexOf("ally")];
+						this.old_owner.ally.joined = this.old_owner.ally.id !== "0" ? true : false;
+						if (this.old_owner.ally.joined) {
+							this.old_owner.ally.data = map_ally.find(ally => ally.split(",")[indexes.map_ally.indexOf("id")] === this.old_owner.ally.id)?.split(",");
+							this.old_owner.ally.tag = decodeURIComponent(this.old_owner.ally.data[indexes.map_ally.indexOf("tag")].replaceAll("+", " "));
+							this.old_owner.ally.points = this.old_owner.ally.data[indexes.map_ally.indexOf("all_points")];
+							this.old_owner.ally.link = `https://${server}${market.link}/game.php?village=0&screen=info_ally&id=${this.old_owner.ally.id}`;
+							this.old_owner.ally.link_guest = `https://${server}${market.link}/guest.php?screen=info_ally&id=${this.old_owner.ally.id}`;
+						}
+					}
+				},
+				_set_new_owner: function () {
+					this.new_owner.id = ennoblement.split(",")[indexes.ennoblements.indexOf("new_owner")];
+					this.new_owner.data = map_player.find(player => player.split(",")[indexes.map_player.indexOf("id")] === this.new_owner.id)?.split(",");
+					this.new_owner.player = typeof this.new_owner.data !== "undefined" ? true : false;
+					if (this.new_owner.player) {
+						this.new_owner.name = decodeURIComponent(this.new_owner.data[indexes.map_player.indexOf("name")].replaceAll("+", " "));
+						this.new_owner.points = this.new_owner.data[indexes.map_player.indexOf("points")];
+						this.new_owner.link = `https://${server}${market.link}/game.php?village=0&screen=info_player&id=${this.new_owner.id}`;
+						this.new_owner.link_guest = `https://${server}${market.link}/guest.php?screen=info_player&id=${this.new_owner.id}`;
+						this.new_owner.ally.id = this.new_owner.data[indexes.map_player.indexOf("ally")];
+						this.new_owner.ally.joined = this.new_owner.ally.id !== "0" ? true : false;
+						if (this.new_owner.ally.joined) {
+							this.new_owner.ally.data = map_ally.find(ally => ally.split(",")[indexes.map_ally.indexOf("id")] === this.new_owner.ally.id)?.split(",");
+							this.new_owner.ally.tag = decodeURIComponent(this.new_owner.ally.data[indexes.map_ally.indexOf("tag")].replaceAll("+", " "));
+							this.new_owner.ally.points = this.new_owner.ally.data[indexes.map_ally.indexOf("all_points")];
+							this.new_owner.ally.link = `https://${server}${market.link}/game.php?village=0&screen=info_ally&id=${this.new_owner.ally.id}`;
+							this.new_owner.ally.link_guest = `https://${server}${market.link}/guest.php?screen=info_ally&id=${this.new_owner.ally.id}`;
+						}
+					}
+				},
+				_init: function () {
+					this._set_village();
+					this._set_date();
+					this._set_old_owner();
+					this._set_new_owner();
+					return this;
+				}
+			}._init();
+			const cronjobs_server = ennoblements_cronjobs.filter(cron => cron.message[indexes.ennoblements_options.indexOf("server")] === server);
+			for (const cronjob of cronjobs_server) {
+				const guild = botSettings_copy.guilds_config.find(guild => guild.config.cronjobs.some(cron => cron === cronjob));
+				const use_translation = translations[guild.market] ? translations[guild.market] : translations["en"];
+				const enabled_continents = cronjob.message[indexes.ennoblements_options.indexOf("continent")].split("&");
 				if (!enabled_continents.includes("all")) {
-					if (!enabled_continents.includes(ennob_village_continent)) {
+					if (!enabled_continents.includes(noble.village.continent)) {
 						continue;
 					}
 				}
-				const ennoblements_Embed = new EmbedBuilder();
+				const embed = new EmbedBuilder();
 				let create_embed = false;
-				switch (cronjob.message[ennoblements_options_indexes.indexOf("tribe")]) {
+				switch (cronjob.message[indexes.ennoblements_options.indexOf("tribe")]) {
 					case "all":
-						if (typeof ennob_old_player !== "undefined") {
-							if (ennob_new_player_id === ennob_old_player_id && cronjob.message[ennoblements_options_indexes.indexOf("self")]) { create_embed = true; ennoblements_Embed.setColor(colors.self) }
-							else if (ennob_new_player_ally_id === ennob_old_player_ally_id && ennob_new_player_ally_id !== "0" && cronjob.message[ennoblements_options_indexes.indexOf("internal")]) { create_embed = true; ennoblements_Embed.setColor(colors.internal) }
-							else if (cronjob.message[ennoblements_options_indexes.indexOf("gain")]) { create_embed = true; ennoblements_Embed.setColor(colors.gain) }
+						if (noble.old_owner.player) {
+							if (noble.new_owner.id === noble.old_owner.id && cronjob.message[indexes.ennoblements_options.indexOf("self")]) { create_embed = true; embed.setColor(colors.self) }
+							else if (noble.new_owner.ally.id === noble.old_owner.ally.id && noble.new_owner.ally.joined && cronjob.message[indexes.ennoblements_options.indexOf("internal")]) { create_embed = true; embed.setColor(colors.internal) }
+							else if (cronjob.message[indexes.ennoblements_options.indexOf("gain")]) { create_embed = true; embed.setColor(colors.gain) }
 						}
-						if (typeof ennob_old_player === "undefined" && cronjob.message[ennoblements_options_indexes.indexOf("barbarian")]) { create_embed = true; ennoblements_Embed.setColor(colors.barbarian); }
+						if (!noble.old_owner.player && cronjob.message[indexes.ennoblements_options.indexOf("barbarian")]) { create_embed = true; embed.setColor(colors.barbarian); }
 						break;
 					default:
-						const new_player_tribe_equals = Object.keys(cronjob.message[ennoblements_options_indexes.indexOf("tribe")]).includes(ennob_new_player_ally_id) ? true : false;
-						const old_player_tribe_equals = Object.keys(cronjob.message[ennoblements_options_indexes.indexOf("tribe")]).includes(ennob_old_player_ally_id) ? true : false;
+						const new_player_tribe_equals = Object.keys(cronjob.message[indexes.ennoblements_options.indexOf("tribe")]).includes(noble.new_owner.ally.id) ? true : false;
+						const old_player_tribe_equals = Object.keys(cronjob.message[indexes.ennoblements_options.indexOf("tribe")]).includes(noble.old_owner.ally.id) ? true : false;
 						if (new_player_tribe_equals) {
-							if (typeof ennob_old_player !== "undefined") {
-								if (ennob_new_player_id === ennob_old_player_id) {
-									if (cronjob.message[ennoblements_options_indexes.indexOf("self")]) {
-										create_embed = true; ennoblements_Embed.setColor(colors.self)
+							if (noble.old_owner.player) {
+								if (noble.new_owner.id === noble.old_owner.id) {
+									if (cronjob.message[indexes.ennoblements_options.indexOf("self")]) {
+										create_embed = true; embed.setColor(colors.self)
 									}
 								}
-								else if (ennob_new_player_ally_id === ennob_old_player_ally_id) {
-									if (ennob_new_player_ally_id !== "0" && cronjob.message[ennoblements_options_indexes.indexOf("internal")]) {
-										create_embed = true; ennoblements_Embed.setColor(colors.internal)
+								else if (noble.new_owner.ally.id === noble.old_owner.ally.id) {
+									if (noble.new_owner.ally.joined && cronjob.message[indexes.ennoblements_options.indexOf("internal")]) {
+										create_embed = true; embed.setColor(colors.internal)
 									}
 								}
-								else if (cronjob.message[ennoblements_options_indexes.indexOf("gain")]) {
-									create_embed = true; ennoblements_Embed.setColor(colors.gain)
+								else if (cronjob.message[indexes.ennoblements_options.indexOf("gain")]) {
+									create_embed = true; embed.setColor(colors.gain)
 								}
 							}
-							if (typeof ennob_old_player === "undefined" && cronjob.message[ennoblements_options_indexes.indexOf("barbarian")]) { create_embed = true; ennoblements_Embed.setColor(colors.barbarian); }
+							if (!noble.old_owner.player && cronjob.message[indexes.ennoblements_options.indexOf("barbarian")]) { create_embed = true; embed.setColor(colors.barbarian); }
 						}
 						else if (old_player_tribe_equals) {
-							if (cronjob.message[ennoblements_options_indexes.indexOf("loss")]) { create_embed = true; ennoblements_Embed.setColor(colors.loss) }
+							if (cronjob.message[indexes.ennoblements_options.indexOf("loss")]) { create_embed = true; embed.setColor(colors.loss) }
 						}
 						else { }
 						break;
 				}
 				if (create_embed) {
-					const embed_footer_text = `${server} | ${ennob_date.getFullYear()}.${ennob_date.getMonth() + 1}.${ennob_date.getDate()} ${ennob_date.getHours()}:${ennob_date.getMinutes()}:${ennob_date.getSeconds()}`;
-					ennoblements_Embed.setDescription(`${ennob_new_player_link} ${ennob_new_player_ally_link} ${use_translation["nobled"]} ${ennob_village_link} (${use_translation["old_owner"]}: ${ennob_old_player_link} ${ennob_old_player_ally_link})`);
-					ennoblements_Embed.setFooter({ text: embed_footer_text });
-					discordClient.channels.cache.get(cronjob.channel_id).send({ embeds: [ennoblements_Embed] });
+					const embed_settings = guild.config.live_ennoblements.use_default ? botSettings_copy.base_config.ennoblements.settings : guild.config.live_ennoblements;
+					const embed_description = {
+						new_owner: {
+							player: [
+								`[`,
+								[
+									noble.new_owner.name,
+									embed_settings.player_points ? ` (${format_number(noble.new_owner.points)}p.)` : ``
+								].join(""),
+								`]`,
+								embed_settings.guest_mode ? `(${noble.new_owner.link_guest}) ` : `(${noble.new_owner.link}) `
+							].join(""),
+							ally: [
+								noble.new_owner.ally.joined ? [
+									`[[`,
+									[
+										noble.new_owner.ally.tag,
+										embed_settings.tribe_points ? ` (${format_number(noble.new_owner.ally.points)}p.)` : ``
+									].join(""),
+									`]]`,
+									embed_settings.guest_mode ? `(${noble.new_owner.ally.link_guest}) ` : `(${noble.new_owner.ally.link}) `,
+								].join("")
+									: ``],
+						},
+						old_owner: {
+							player: [
+								noble.old_owner.player ? [
+									`[`,
+									[
+										noble.old_owner.name,
+										embed_settings.player_points ? ` (${format_number(noble.old_owner.points)}p.)` : ``
+									].join(""),
+									`]`,
+									embed_settings.guest_mode ? `(${noble.old_owner.link_guest}) ` : `(${noble.old_owner.link}) `
+								].join("")
+									: use_translation["barbarian"]],
+							ally: [
+								noble.old_owner.player && noble.old_owner.ally.joined ? [
+									`[[`,
+									[
+										noble.old_owner.ally.tag,
+										embed_settings.tribe_points ? ` (${format_number(noble.old_owner.ally.points)}p.)` : ``
+									].join(""),
+									`]]`,
+									embed_settings.guest_mode ? `(${noble.old_owner.ally.link_guest}) ` : `(${noble.old_owner.ally.link}) `,
+								].join("")
+									: ``],
+						},
+						village: [
+							`[`,
+							[
+								`${noble.village.name} `,
+								`[${noble.village.coord}] `,
+								`${noble.village.continent.toUpperCase()}`,
+								embed_settings.village_points ? ` (${format_number(noble.village.points)}p.)` : ``
+							].join(""),
+							`]`,
+							embed_settings.guest_mode ? `(${noble.village.link_guest}) ` : `(${noble.village.link}) `
+						].join(""),
+						generate: function () {
+							return [
+								this.new_owner.player,
+								this.new_owner.ally,
+								use_translation["nobled"],
+								this.village,
+								embed_settings.old_owner ? [
+									`(${use_translation["old_owner"]}:`,
+									this.old_owner.player,
+									`${this.old_owner.ally})`
+								].join(" ") : ``,
+								embed_settings.relative_time ? [
+									` | `,
+									`<t:${noble.date.unix_timestamp}:R>`
+								].join("") : ``
+							].join(" ");
+						}
+					};
+					const embed_footer = [
+						`${server}`,
+						embed_settings.date_time ? [
+							` | `,
+							`${noble.date.market.getFullYear()}.${noble.date.market.getMonth() + 1}.${noble.date.market.getDate()} `,
+							`${noble.date.market.getHours()}:${noble.date.market.getMinutes()}:${noble.date.market.getSeconds()}  `,
+							`UTC${Math.sign(market.timezone) >= 0 ? "+" : "-"}${market.timezone}`
+						].join("") : ``
+					].join("");
+					embed.setDescription(embed_description.generate());
+					embed_settings.date_time ? embed.setFooter({ text: embed_footer }) : null;
+					try {
+						discordClient.channels.cache.get(cronjob.channel_id).send({ embeds: [embed] });
+					} catch (error) { log_error(error, { channel_id: cronjob.channel_id }); }
 				}
 			}
 		}
@@ -1109,7 +1440,7 @@ async function speed_table() {
 		return speed_data;
 	}
 	function update_speed_messages(cronjob) {
-		const use_locale = botSettings.base_config.translations.speed[cronjob.message.locale]["title"] ? cronjob.message.locale : "en";
+		const use_locale = helper.translation_locale("speed", cronjob.message.locale);
 		const speed_upcoming_Embed = new EmbedBuilder()
 			.setColor("#00FFFF")
 			.setTitle(botSettings.base_config.translations.speed[use_locale]["title"])
@@ -1125,12 +1456,14 @@ async function generate_tribe_chart(interaction, cron) {
 	switch (interaction) {
 		case false:
 			guild = botSettings.guilds_config.find(guild => guild.config.cronjobs.find(cronjob => cronjob.cron_id === cron.cron_id));
-			use_locale = botSettings.base_config.translations.chart.tribe_scope[guild.market]["conquer"] ? guild.market : "en";
+			use_locale = helper.translation_locale("chart", guild.market);
 			options = {
 				command: cron.message.command,
 				scope: cron.message.scope ?? "conquer",
 				server: cron.message.server,
 				size: cron.message.size ?? 20,
+				month: cron.message.month ?? 1,
+				player: cron.message.player ?? "",
 				ally: cron.message.ally ?? "",
 				enemy: cron.message.enemy ?? "",
 				barbarian: cron.message.barbarian ?? "",
@@ -1143,12 +1476,14 @@ async function generate_tribe_chart(interaction, cron) {
 			};
 			break;
 		default:
-			use_locale = botSettings.base_config.translations.chart.tribe_scope[interaction.locale]["conquer"] ? interaction.locale : "en";
+			use_locale = helper.translation_locale("chart", interaction.locale);
 			options = {
 				command: interaction.options.getSubcommand(),
 				scope: interaction.options.getString("scope") ?? "conquer",
 				server: interaction.options.getString("server"),
 				size: interaction.options.getNumber("size") ?? 20,
+				month: interaction.options.getNumber("month") ?? 1,
+				player: interaction.options.getString("player") ?? "",
 				ally: interaction.options.getString("ally") ?? "",
 				enemy: interaction.options.getString("enemy") ?? "",
 				barbarian: interaction.options.getString("barbarian") ?? "",
@@ -1175,6 +1510,9 @@ async function generate_tribe_chart(interaction, cron) {
 					break;
 			}
 			break;
+		case "monthly":
+			stat_monthly(options.scope);
+			break;
 		case "od":
 			switch (options.ally.length > 0) {
 				case true:
@@ -1186,7 +1524,7 @@ async function generate_tribe_chart(interaction, cron) {
 			}
 			break;
 		case "conquer":
-			conquer();
+			stat_conquer();
 			break;
 	}
 	function daily_stat_tribe(scope) {
@@ -1292,6 +1630,7 @@ async function generate_tribe_chart(interaction, cron) {
 	function daily_stat_players_in_tribe(scope) {
 		date.setTime(fs.statSync(`${botSettings.locations.daily_stats}${options.server}.json`).ctime.getTime() - 24 * 60 * 60 * 1000);
 		const ally = get_ally_by_tag(options.ally);
+		if (!ally) { return; }
 		const players_in_ally = get_players_in_ally(ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("id")]);
 		const players_in_ally_sorted = players_in_ally.sort(sort_player_by_rank);
 		const players_name = players_in_ally_sorted.map(player => decodeURIComponent(player.split(",")[botSettings.base_config.map_data.player.data.indexOf("name")].replaceAll("+", " ")));
@@ -1396,6 +1735,7 @@ async function generate_tribe_chart(interaction, cron) {
 	}
 	function stat_players_in_tribe(scope) {
 		const ally = get_ally_by_tag(options.ally);
+		if (!ally) { return; }
 		const players_in_ally = get_players_in_ally(ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("id")]);
 		const players_in_ally_sorted = players_in_ally.sort(sort_player_by_rank);
 		const players_name = players_in_ally_sorted.map(player => decodeURIComponent(player.split(",")[botSettings.base_config.map_data.player.data.indexOf("name")].replaceAll("+", " ")));
@@ -1424,7 +1764,7 @@ async function generate_tribe_chart(interaction, cron) {
 		}
 		create_chart(dataset, players_name);
 	}
-	function conquer() {
+	function stat_conquer() {
 		// server, ally, enemy, barbarian, continent, from, to    chart type, style, color, size
 		let dataset = {};
 		const conquers_data = botSettings.base_config.map_data.conquer.data;
@@ -1572,6 +1912,154 @@ async function generate_tribe_chart(interaction, cron) {
 				break;
 		}
 	}
+	async function stat_monthly(scope) {
+		options.type = "line";
+		const data = {};
+		const tw_stat_index = {
+			date: 0,
+			name: 1,
+			ally: 2,
+			rank: 3,
+			points: 4,
+			villages: 5,
+			kill_all: 6,
+			kill_att: 7,
+			kill_def: 8
+		};
+		const market = botSettings.base_config.markets.find(market => market.market === options.server.substring(0, 2));
+		if (options.player) {
+			const players = options.player.split("&");
+			for (const player of players) {
+				const player_data = get_player_by_id(player)?.split(",");
+				if (!player_data) { continue; }
+				for (let month = 0; month < options.month; month++) {
+					await get_player_data(player, month);
+				}
+			}
+			options.player = [...new Set(Object.values(data).flatMap(entry => Object.keys(entry)))].join(",");
+			async function get_player_data(id, month) {
+				const link = `${market.twstat}${options.server}/index.php?page=player&id=${id}&tab=history&pn=${month + 1}`;
+				const url_data = await axios.get(link);
+				if (url_data.status !== 200) { return; }
+				const dom = new JSDOM(url_data.data);
+				const table = dom.window.document.getElementById("history");
+				const rows = [...table.rows];
+				rows.shift();
+				rows.forEach(row => {
+					const row_date = row.cells[tw_stat_index.date].textContent.slice(-5);
+					typeof data[row_date] === "undefined" ? data[row_date] = {} : null;
+					const name = row.cells[tw_stat_index.name].textContent;
+					data[row_date][name] = {
+						name: row.cells[tw_stat_index.name].textContent,
+						ally: row.cells[tw_stat_index.ally].textContent,
+						rank: +row.cells[tw_stat_index.rank].textContent.replace(/\D/g, ""),
+						points: +row.cells[tw_stat_index.points].textContent.replace(/\D/g, ""),
+						villages: +row.cells[tw_stat_index.villages].textContent.replace(/\D/g, ""),
+						kill_all: +row.cells[tw_stat_index.kill_all].textContent.replace(/\D/g, ""),
+						kill_att: +row.cells[tw_stat_index.kill_att].textContent.replace(/\D/g, ""),
+						kill_def: +row.cells[tw_stat_index.kill_def].textContent.replace(/\D/g, "")
+					};
+					const this_data = data[row_date][name];
+					this_data["kill_sup"] = this_data.kill_all - this_data.kill_att - this_data.kill_def;
+				});
+			}
+		}
+		else if (options.ally) {
+			tw_stat_index.rank = 2;
+			const allies = options.ally.split("&");
+			for (const ally of allies) {
+				const ally_data = get_ally_by_tag(ally)?.split(",");
+				if (!ally_data) { continue; }
+				const ally_id = ally_data[botSettings.base_config.map_data.ally.data.indexOf("id")];
+				for (let month = 0; month < options.month; month++) {
+					await get_ally_data(ally_id, month);
+				}
+			}
+			options.ally = [...new Set(Object.values(data).flatMap(entry => Object.keys(entry)))].join(",");
+			async function get_ally_data(ally_id, month) {
+				const link = `${market.twstat}${options.server}/index.php?page=tribe&id=${ally_id}&tab=history&pn=${month + 1}`;
+				const url_data = await axios.get(link);
+				if (url_data.status !== 200) { return; }
+				const dom = new JSDOM(url_data.data);
+				const table = dom.window.document.getElementById("history");
+				const rows = [...table.rows];
+				rows.shift();
+				rows.forEach(row => {
+					const row_date = row.cells[tw_stat_index.date].textContent.slice(-5);
+					typeof data[row_date] === "undefined" ? data[row_date] = {} : null;
+					const name = row.cells[tw_stat_index.name].textContent;
+					data[row_date][name] = {
+						name: row.cells[tw_stat_index.name].textContent,
+						ally: row.cells[tw_stat_index.ally].textContent,
+						rank: +row.cells[tw_stat_index.rank].textContent.replace(/\D/g, ""),
+						points: +row.cells[tw_stat_index.points].textContent.replace(/\D/g, ""),
+						villages: +row.cells[tw_stat_index.villages].textContent.replace(/\D/g, ""),
+						kill_all: +row.cells[tw_stat_index.kill_all].textContent.replace(/\D/g, ""),
+						kill_att: +row.cells[tw_stat_index.kill_att].textContent.replace(/\D/g, ""),
+						kill_def: +row.cells[tw_stat_index.kill_def].textContent.replace(/\D/g, "")
+					};
+					const this_data = data[row_date][name];
+					this_data["kill_sup"] = this_data.kill_all - this_data.kill_att - this_data.kill_def;
+				});
+			}
+		}
+		else {
+			const map_ally_sorted = botSettings.cache.map_ally[options.server].sort(sort_ally_by_rank);
+			const first_x_ally = map_ally_sorted.slice(0, options.size);
+			const ally_tags = get_ally_tagnames(first_x_ally);
+			options.ally = ally_tags.join("&");
+			stat_monthly(scope);
+			return;
+		}
+		const dataset = get_empty_dataset();
+		const scopes = scope.split("-");
+		const entries = [...new Set(Object.values(data).flatMap(entry => Object.keys(entry)))];
+		switch (scopes.length) {
+			case 2:
+				if (entries.length > 1) { populate_multiple_entry_dataset(); }
+				else {
+					dataset.a.data = Object.values(data).map(day => day[entries[0]]?.[scopes[0]] ?? 0).reverse();
+					dataset.b.data = Object.values(data).map(day => day[entries[0]]?.[scopes[1]] ?? 0).reverse();
+					dataset.sum.data = Object.values(data).map(day => day[entries[0]]?.[scopes[0]] ?? 0).reverse();
+				}
+				break;
+			default:
+				if (entries.length > 1) { populate_multiple_entry_dataset(); }
+				else {
+					if (scopes[0] === "kill_all") {
+						dataset.a.data = Object.values(data).map(day => day[entries[0]]?.kill_att ?? 0).reverse();
+						dataset.b.data = Object.values(data).map(day => day[entries[0]]?.kill_def ?? 0).reverse();
+						dataset.c.data = Object.values(data).map(day => day[entries[0]]?.kill_sup ?? 0).reverse();
+						dataset.sum.data = Object.values(data).map(day => day[entries[0]]?.kill_all ?? 0).reverse();
+					}
+					else {
+						dataset.a.data = Object.values(data).map(day => day[entries[0]]?.[scopes[0]] ?? 0).reverse();
+						dataset.sum.data = Object.values(data).map(day => day[entries[0]]?.[scopes[0]] ?? 0).reverse();
+					}
+				}
+				break;
+		}
+		function populate_multiple_entry_dataset() {
+			delete dataset.a;
+			delete dataset.b;
+			delete dataset.c;
+			delete dataset.sum;
+			for (const entry of entries) {
+				dataset[entry] = {
+					label: entry,
+					fill: false,
+					data: Object.values(data).map(day => day[entry]?.[scopes[0]] ?? 0).reverse()
+				};
+			}
+		}
+		const data_labels = Object.keys(data).reverse();
+		if (data_labels.length > 20) {
+			for (let label = 1; label < data_labels.length; label += 2) {
+				data_labels[label] = "";
+			}
+		}
+		create_chart(dataset, data_labels);
+	}
 	function get_empty_dataset() {
 		const empty_dataset = {
 			a: {
@@ -1612,6 +2100,11 @@ async function generate_tribe_chart(interaction, cron) {
 	function get_ally_by_tag(ally_tag) {
 		return botSettings.cache.map_ally[options.server].find(ally => decodeURIComponent(ally.split(",")[botSettings.base_config.map_data.ally.data.indexOf("tag")]?.replaceAll("+", " ")) === ally_tag);
 	}
+	function get_player_by_id(id) {
+		return botSettings.cache.map_player[options.server].find(player => {
+			return player.split(",")[botSettings.base_config.map_data.player.data.indexOf("id")] === id;
+		});
+	}
 	function get_players_in_ally(ally_id) {
 		return botSettings.cache.map_player[options.server].filter(player => player.split(",")[botSettings.base_config.map_data.player.data.indexOf("ally")] === ally_id);
 	}
@@ -1627,11 +2120,18 @@ async function generate_tribe_chart(interaction, cron) {
 	function generate_title(from_date, to_date) {
 		if (options.command === "daily") {
 			if (options.ally === "") {
-				return `${botSettings.base_config.translations.chart.title[use_locale]["daily"]} ${botSettings.base_config.translations.chart.title[use_locale][options.scope]} ${botSettings.base_config.translations.chart.title[use_locale]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+				return `${botSettings.base_config.translations.chart[use_locale]["title"]["daily"]} ${botSettings.base_config.translations.chart[use_locale]["title"][options.scope]} ${botSettings.base_config.translations.chart[use_locale]["title"]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
 			}
 			else {
-				return `${options.ally}  ${botSettings.base_config.translations.chart.title[use_locale]["daily"]} ${botSettings.base_config.translations.chart.title[use_locale][options.scope]} ${botSettings.base_config.translations.chart.title[use_locale]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+				return `${options.ally}  ${botSettings.base_config.translations.chart[use_locale]["title"]["daily"]} ${botSettings.base_config.translations.chart[use_locale]["title"][options.scope]} ${botSettings.base_config.translations.chart[use_locale]["title"]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
 			}
+		}
+		else if (options.command === "monthly") {
+			return [
+				`${options.player ? options.player : options.ally}`,
+				`${botSettings.base_config.translations.chart[use_locale]["title"][options.scope]}`,
+				`${botSettings.base_config.translations.chart[use_locale]["title"]["stat"]}`
+			].join(" ");
 		}
 		else if (options.command === "conquer") {
 			const from_date_formatted = `${from_date.getFullYear()}.${from_date.getMonth() + 1}.${from_date.getDate()}`;
@@ -1640,24 +2140,24 @@ async function generate_tribe_chart(interaction, cron) {
 		}
 		else if (options.command === "od") {
 			if (options.ally === "") {
-				return `${botSettings.base_config.translations.chart.title[use_locale][options.scope]} ${botSettings.base_config.translations.chart.title[use_locale]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+				return `${botSettings.base_config.translations.chart[use_locale]["title"][options.scope]} ${botSettings.base_config.translations.chart[use_locale]["title"]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
 			}
 			else {
-				return `${options.ally}  ${botSettings.base_config.translations.chart.title[use_locale][options.scope]} ${botSettings.base_config.translations.chart.title[use_locale]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+				return `${options.ally}  ${botSettings.base_config.translations.chart[use_locale]["title"][options.scope]} ${botSettings.base_config.translations.chart[use_locale]["title"]["stat"]}     ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
 			}
 		}
 		else { }
 	}
 	function generate_dataset_labels(chart_data) {
 		const datasets = chart_data.data.datasets;
-		if (options.command === "conquer") {
-		}
+		if (options.command === "conquer") { }
+		else if (options.command === "monthly" && (options.player.includes(",") || options.ally.includes(","))) { }
 		else {
 			try {
-				datasets.forEach(dataset => dataset.label = botSettings.base_config.translations.chart.dataset_label[use_locale][options.scope][options.style][dataset.label]);
+				datasets.forEach(dataset => dataset.label = botSettings.base_config.translations.chart[use_locale]["dataset_label"][options.scope][options.style][dataset.label] ?? dataset.label);
 			}
 			catch (error) {
-				datasets.forEach(dataset => dataset.label = botSettings.base_config.translations.chart.dataset_label[use_locale][options.scope]["combined"]["sum"]);
+				datasets.forEach(dataset => dataset.label = botSettings.base_config.translations.chart[use_locale]["dataset_label"][options.scope]["combined"]["sum"] ?? dataset.label);
 			}
 		}
 	}
@@ -1668,7 +2168,7 @@ async function generate_tribe_chart(interaction, cron) {
 		else {
 			const filled_data_arrays = Object.values(datasets).filter(obj => obj.data.length > 0).length;
 			if (options.style === "combined") { delete datasets.a; delete datasets.b; delete datasets.c; }
-			else if (filled_data_arrays > 2 || options.type === "violin") { delete datasets.sum; }
+			else if (filled_data_arrays > 1 || options.type === "violin") { delete datasets.sum; }
 			else { options.style = "combined"; delete datasets.a; delete datasets.b; delete datasets.c; }
 			Object.keys(datasets).forEach(key => {
 				if (datasets[key].data.length === 0) {
@@ -1744,6 +2244,17 @@ async function generate_tribe_chart(interaction, cron) {
 							fontColor: 'white',
 							fontSize: 12,
 							fontStyle: 'normal',
+							callback: function (value) {
+								if (value >= 1000000) {
+									return (value / 1000000).toFixed(1) + 'm';
+								}
+								else if (value >= 1000) {
+									return (value / 1000).toFixed(1) + 'k';
+								}
+								else {
+									return value;
+								}
+							}
 						},
 					},
 				],
@@ -1798,6 +2309,52 @@ async function generate_tribe_chart(interaction, cron) {
 					case "violin":
 						chart_data.options.plugins.datalabels.display = false;
 						break;
+				}
+				if (options.command === "monthly") {
+					if (options.scope.split("-").length === 2 && (!options.player.includes(",") || !options.ally.includes(","))) {
+						chart_data.data.datasets[0]["yAxisID"] = "y";
+						chart_data.data.datasets[1]["yAxisID"] = "y1";
+						chart_data.options.scales.yAxes[0]["id"] = "y";
+						chart_data.options.scales.yAxes[0]["position"] = "left";
+						chart_data.options.scales.yAxes[0]["scaleLabel"] = {
+							"labelString": botSettings.base_config.translations.chart[use_locale]["dataset_label"][options.scope.split("-")[0]]["combined"]["sum"],
+							"display": true,
+							"padding": 0,
+							"fontColor": 'white'
+						};
+						chart_data.options.scales.yAxes.push({
+							"id": "y1",
+							"type": "linear",
+							"display": true,
+							"position": "right",
+							"gridLines": {
+								"drawOnChartArea": false
+							},
+							"ticks": {
+								"display": true,
+								"fontColor": 'white',
+								"fontSize": 12,
+								"fontStyle": 'normal',
+								callback: function (value) {
+									if (value >= 1000000) {
+										return (value / 1000000).toFixed(1) + 'm';
+									}
+									else if (value >= 1000) {
+										return (value / 1000).toFixed(1) + 'k';
+									}
+									else {
+										return value;
+									}
+								}
+							},
+							"scaleLabel": {
+								"labelString": botSettings.base_config.translations.chart[use_locale]["dataset_label"][options.scope.split("-")[1]]["combined"]["sum"],
+								"display": true,
+								"padding": 0,
+								"fontColor": 'white'
+							}
+						});
+					}
 				}
 				break;
 			case "stacked":
@@ -1859,6 +2416,8 @@ async function generate_tribe_chart(interaction, cron) {
 				chart_data.options.legend.labels.fontColor = "black";
 				chart_data.options.scales.xAxes[0].ticks.fontColor = "black";
 				chart_data.options.scales.yAxes[0].ticks.fontColor = "black";
+				chart_data.options.scales.yAxes[0]?.["scaleLabel"]?.["fontColor"] ? chart_data.options.scales.yAxes[0]["scaleLabel"]["fontColor"] = "black" : null;
+				chart_data.options.scales.yAxes[1]?.["scaleLabel"]?.["fontColor"] ? chart_data.options.scales.yAxes[1]["scaleLabel"]["fontColor"] = "black" : null;
 				chart_data.options.plugins.datalabels.color = "black";
 				break;
 			case "white":
@@ -1866,6 +2425,8 @@ async function generate_tribe_chart(interaction, cron) {
 				chart_data.options.legend.labels.fontColor = "black";
 				chart_data.options.scales.xAxes[0].ticks.fontColor = "black";
 				chart_data.options.scales.yAxes[0].ticks.fontColor = "black";
+				chart_data.options.scales.yAxes[0]?.["scaleLabel"]?.["fontColor"] ? chart_data.options.scales.yAxes[0]["scaleLabel"]["fontColor"] = "black" : null;
+				chart_data.options.scales.yAxes[1]?.["scaleLabel"]?.["fontColor"] ? chart_data.options.scales.yAxes[1]["scaleLabel"]["fontColor"] = "black" : null;
 				chart_data.options.plugins.datalabels.color = "black";
 				break;
 		}
@@ -1901,6 +2462,556 @@ async function generate_tribe_chart(interaction, cron) {
 		}
 	}
 }
+async function set_coord_info(interaction) {
+	const guild = botSettings.guilds_config.find(guild => guild.guild_id === interaction.guildId);
+	const use_locale = helper.translation_locale("coord_info", interaction.locale);
+	const translation = botSettings.base_config.translations.coord_info[use_locale];
+	const options = {
+		type: interaction.options.getSubcommand(),
+		server: interaction.options.getString("server") ?? "",
+		channel: interaction.options.getChannel("channel")?.id ?? interaction.channelId,
+		all: interaction.options.getBoolean("all") ?? false,
+		active: interaction.options.getBoolean("active") ?? false,
+	}
+	switch (options.type) {
+		case "activate":
+			guild.config.coord_info.active = options.active;
+			break;
+		case "set_channel":
+			const market = botSettings.base_config.markets.find(market => market.market === options.server.substring(0, 2));
+			if (!market.enabled) {
+				interaction.editReply({ content: `${translation["market_error"]}`, ephemeral: true });
+				return;
+			}
+			if (!botSettings.base_config.running_servers.includes(options.server)) {
+				interaction.editReply({ content: `${translation["server_error"]}`, ephemeral: true });
+				return;
+			}
+			if (!options.channel) {
+				interaction.editReply({ content: `${translation["channel_error"]}`, ephemeral: true });
+				return;
+			}
+			guild.config.coord_info.channels[`${options.channel}`] = options.server;
+			break;
+		case "delete_channel":
+			if (options.all) {
+				guild.config.coord_info.channels = {};
+			}
+			else {
+				if (!options.channel) {
+					interaction.editReply({ content: `${translation["channel_error"]}`, ephemeral: true });
+					return;
+				}
+				delete guild.config.coord_info.channels[options.channel]
+			}
+			break;
+	}
+	await mongodb.UPDATE_GUILD_CONFIG("coord_info", {
+		guild_id: interaction.guild.id,
+		guild_name: interaction.guild.name,
+		active: guild.active,
+		market: guild.market,
+		coord_info: guild.config.coord_info
+	});
+	interaction.editReply({ content: `${translation["modified"]}`, ephemeral: true });
+}
+async function show_info_tribal_data(interaction, message, guild) {
+	let use_locale, options;
+	switch (interaction) {
+		case false:
+			if (!guild.config.coord_info.active) { return; }
+			use_locale = helper.translation_locale("info", guild.market);
+			options = {
+				type: "village",
+				server: guild.config.coord_info.channels[`${message.channelId}`] ? guild.config.coord_info.channels[`${message.channelId}`] : guild.global_world,
+				village: message.content
+			}
+			break;
+		default:
+			guild = botSettings.guilds_config.find(guild => guild.guild_id === interaction.guildId);
+			use_locale = helper.translation_locale("info", interaction.locale);
+			options = {
+				type: interaction.options.getSubcommand(),
+				server: interaction.options.getString("server") ?? (
+					guild.config.coord_info.channels[`${message?.channelId}`]
+						? guild.config.coord_info.channels[`${message?.channelId}`]
+						: guild.global_world
+				),
+				ally: interaction.options.getString("ally") ?? "",
+				player: interaction.options.getString("player") ?? "",
+				village: interaction.options.getString("coord") ?? "",
+			}
+			break;
+	}
+	if (!botSettings.base_config.running_servers.includes(options.server)) { return; }
+	if (options[options.type] === "") { return; }
+	const market = botSettings.base_config.markets.find(market => market.market === options.server.substring(0, 2));
+	if (!market.enabled) { return; }
+	const translation = botSettings.base_config.translations.info[use_locale];
+	const indexes = {
+		map_ally: botSettings.base_config.map_data.ally.data,
+		map_player: botSettings.base_config.map_data.player.data,
+		map_village: botSettings.base_config.map_data.village.data,
+		kill: botSettings.base_config.map_data.kill_att.data,
+		conquer: botSettings.base_config.map_data.conquer.data
+	};
+	eval(`show_${options.type}();`);
+
+	function show_village() {
+		const coords = [...new Set(options.village.match(/\d{2,3}[|]{1}\d{2,3}/g))];
+		if (!coords) {
+			interaction ? interaction.editReply({ content: `${translation[`${options.type}_error`]}`, ephemeral: true }) : null;
+			return;
+		}
+		const villages_info = [];
+		const fields = [];
+		for (let coord of coords) {
+			const village_data = get_tribal_data(options.type, coord.split("|"))?.split(",");
+			if (!village_data) { continue; }
+			const village = {
+				village: {},
+				owner: {
+					ally: {}
+				},
+				_set_village: function () {
+					this.village.data = village_data;
+					this.village.id = this.village.data[indexes.map_village.indexOf("id")];
+					this.village.name = decodeURIComponent(this.village.data[indexes.map_village.indexOf("name")].replaceAll("+", " "));
+					this.village.coord = `${this.village.data[indexes.map_village.indexOf("x")]}|${this.village.data[indexes.map_village.indexOf("y")]}`;
+					this.village.continent = get_continent_number(this.village.data);
+					this.village.points = this.village.data[indexes.map_village.indexOf("points")];
+					this.village.link = `https://${options.server}${market.link}/game.php?village=0&screen=info_village&id=${this.village.id}`;
+					this.village.link_guest = `https://${options.server}${market.link}/guest.php?screen=info_village&id=${this.village.id}`;
+				},
+				_set_owner: function () {
+					this.owner.id = this.village.data[indexes.map_village.indexOf("player")];
+					this.owner.data = get_tribal_data("player", this.owner.id)?.split(",");
+					this.owner.player = typeof this.owner.data !== "undefined" ? true : false;
+					if (this.owner.player) {
+						this.owner.name = decodeURIComponent(this.owner.data[indexes.map_player.indexOf("name")].replaceAll("+", " "));
+						this.owner.points = this.owner.data[indexes.map_player.indexOf("points")];
+						this.owner.link = `https://${options.server}${market.link}/game.php?village=0&screen=info_player&id=${this.owner.id}`;
+						this.owner.link_guest = `https://${options.server}${market.link}/guest.php?screen=info_player&id=${this.owner.id}`;
+						this.owner.ally.id = this.owner.data[indexes.map_player.indexOf("ally")];
+						this.owner.ally.joined = this.owner.ally.id !== "0" ? true : false;
+						if (this.owner.ally.joined) {
+							this.owner.ally.data = get_tribal_data("ally", this.owner.ally.id)?.split(",");
+							this.owner.ally.tag = decodeURIComponent(this.owner.ally.data[indexes.map_ally.indexOf("tag")].replaceAll("+", " "));
+							this.owner.ally.points = this.owner.ally.data[indexes.map_ally.indexOf("all_points")];
+							this.owner.ally.link = `https://${options.server}${market.link}/game.php?village=0&screen=info_ally&id=${this.owner.ally.id}`;
+							this.owner.ally.link_guest = `https://${options.server}${market.link}/guest.php?screen=info_ally&id=${this.owner.ally.id}`;
+						}
+					}
+				},
+				_init: function () {
+					this._set_village();
+					this._set_owner();
+					return this;
+				}
+			}._init();
+			villages_info.push(village);
+		}
+		if (!villages_info.length) {
+			interaction ? interaction.editReply({ content: `${translation[`${options.type}_error`]}`, ephemeral: true }) : null;
+			return;
+		}
+		const owners = [...new Set(villages_info.map(village => village.owner.id))];
+		for (let owner of owners) {
+			const owner_data = villages_info.filter(village => village.owner.id === owner);
+			const owner_field = {
+				player: [
+					owner_data[0].owner.player ? [
+						`**`,
+						`[${owner_data[0].owner.name}]`,
+						`(${owner_data[0].owner.link}) `,
+						` | `,
+						`${format_number(owner_data[0].owner.points)}p.`,
+						owner_data[0].owner.ally.joined ? [
+							` | `,
+							`[${owner_data[0].owner.ally.tag}]`,
+							`(${owner_data[0].owner.ally.link})`
+						].join("")
+							: ``,
+						`**`
+					].join("")
+						: `**${translation["barbarian"]}**`
+				],
+				coords: [],
+				_generate_coords: function () {
+					owner_data.forEach(village => {
+						this.coords.push([
+							`[[${village.village.coord}]]`,
+							`(${village.village.link}) `,
+							`${village.village.name} `,
+							`${village.village.continent} `,
+							`(${format_number(village.village.points)}p.)`
+						].join(""));
+					});
+				},
+				_generate: function () {
+					this._generate_coords();
+					fields.push(`${fields.length ? "" : "\n"}${this.player}`);
+					this.coords.forEach(coord => fields.push(coord));
+				}
+			};
+			owner_field._generate();
+		}
+		const embeds = [];
+		for (let index = 0; index < fields.length; index += 25) {
+			const embed = new EmbedBuilder();
+			embed.setDescription(fields.slice(index, index + 25).join("\n"));
+			embeds.push(embed);
+		}
+		embeds[embeds.length - 1].setFooter({ text: `${options.server} | coords: ${coords.length}` });
+		interaction ?
+			interaction.editReply({ embeds: embeds })
+			: discordClient.channels.cache.get(message.channelId).send({ embeds: embeds, ephemeral: false });
+	}
+	async function show_player() {
+		const owner = {
+			ally: {},
+			_set_owner: async function () {
+				this.id = options.player;
+				this.data = get_tribal_data("player", this.id)?.split(",");
+				this.player = typeof this.data !== "undefined" ? true : false;
+				if (this.player) {
+					this.name = decodeURIComponent(this.data[indexes.map_player.indexOf("name")].replaceAll("+", " "));
+					this.points = this.data[indexes.map_player.indexOf("points")];
+					this.villages = this.data[indexes.map_player.indexOf("villages")];
+					this.rank = this.data[indexes.map_player.indexOf("rank")];
+					this.kill_att = get_kill_data("kill_att", this.id);
+					this.kill_def = get_kill_data("kill_def", this.id);
+					this.kill_sup = get_kill_data("kill_sup", this.id);
+					this.kill_all = get_kill_data("kill_all", this.id);
+					this.link = `https://${options.server}${market.link}/game.php?village=0&screen=info_player&id=${this.id}`;
+					this.link_guest = `https://${options.server}${market.link}/guest.php?screen=info_player&id=${this.id}`;
+					this.link_twstat = `${market.twstat}${options.server}/index.php?page=player&id=${this.id}`;
+					this.image = await get_user_image(this.link_guest);
+					this.ally.id = this.data[indexes.map_player.indexOf("ally")];
+					this.ally.joined = this.ally.id !== "0" ? true : false;
+					if (this.ally.joined) {
+						this.ally.data = get_tribal_data("ally", this.ally.id)?.split(",");
+						this.ally.tag = decodeURIComponent(this.ally.data[indexes.map_ally.indexOf("tag")].replaceAll("+", " "));
+						this.ally.points = this.ally.data[indexes.map_ally.indexOf("all_points")];
+						this.ally.link = `https://${options.server}${market.link}/game.php?village=0&screen=info_ally&id=${this.ally.id}`;
+						this.ally.link_guest = `https://${options.server}${market.link}/guest.php?screen=info_ally&id=${this.ally.id}`;
+					}
+					this.conquer = get_conquer_data(this);
+				}
+			}
+		}
+		await owner._set_owner();
+		if (!owner.player) {
+			interaction ? interaction.editReply({ content: `${translation[`${options.type}_error`]}`, ephemeral: true }) : null;
+			return;
+		}
+		const embed_fields = {
+			title: [
+				`**${owner.name}** | `,
+				`${options.server.toUpperCase()}`
+			].join(""),
+			description: {
+				link: [
+					`**${translation["link"]}:** `,
+					`[${translation["ingame"]}](${owner.link}) `,
+					`[${translation["guest"]}](${owner.link_guest}) `,
+					`[${translation["twstat"]}](${owner.link_twstat}) `,
+				].join(""),
+				ally: [
+					`**${translation["ally"]}:** `,
+					owner.ally.joined ?
+						[
+							`[${owner.ally.tag}](${owner.ally.link}) `,
+							`(${format_number(owner.ally.points)}p.)`
+						].join("")
+						: `${translation["ally_not_joined"]}`
+				].join(""),
+				player: [
+					`**${translation["rank"]}:** ${format_number(owner.rank)}`,
+					`**${translation["points"]}:** ${format_number(owner.points)}`,
+					`**${translation["villages"]}:** ${format_number(owner.villages)}`,
+				].join("\n"),
+				conquers: [
+					`**${translation["conquers"]}:**`,
+					[
+						`${translation["gain"]}: ${format_number(owner.conquer.gain)}`,
+						`${translation["barb"]}: ${format_number(owner.conquer.barb)}`,
+						`${translation["lose"]}: ${format_number(owner.conquer.lose)}`
+					].join("‎ ‎ ‎ ‎ ‎ ‎"),
+					[
+						`${translation["self"]}: ${format_number(owner.conquer.self)}`,
+						`${translation["sum"]}: ${format_number(owner.conquer.sum)}`,
+					].join("‎ ‎ ‎ ‎ ‎ ‎")
+				].join("\n"),
+				kills: [
+					`**${translation["kills_text"]}:**`,
+					[
+						`**${translation["oda"]}:** `,
+						[
+							`${translation["rank"]}: ${format_number(owner.kill_att.rank)}`,
+							`${translation["kills"]}: ${format_number(owner.kill_att.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+					[
+						`**${translation["odd"]}:** `,
+						[
+							`${translation["rank"]}: ${format_number(owner.kill_def.rank)}`,
+							`${translation["kills"]}: ${format_number(owner.kill_def.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+					[
+						`**${translation["ods"]}:** `,
+						[
+							`${translation["rank"]}: ${format_number(owner.kill_sup.rank)}`,
+							`${translation["kills"]}: ${format_number(owner.kill_sup.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+					[
+						`**${translation["od"]}:** ‎ ‎ ‎ `,
+						[
+							`${translation["rank"]}: ${format_number(owner.kill_all.rank)}`,
+							`${translation["kills"]}: ${format_number(owner.kill_all.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+				].join("\n")
+			},
+			thumbnail_url: owner.image,
+			_generate_description() {
+				return [
+					this.description.link,
+					this.description.ally,
+					``,
+					this.description.player,
+					``,
+					this.description.conquers,
+					``,
+					this.description.kills
+				].join("\n");
+			}
+		};
+		const embed = new EmbedBuilder();
+		embed.setTitle(embed_fields.title);
+		embed_fields.thumbnail_url ? embed.setThumbnail(embed_fields.thumbnail_url) : null;
+		embed.setDescription(embed_fields._generate_description());
+		interaction.editReply({ embeds: [embed] })
+	}
+	async function show_ally() {
+		const ally = {
+			players: {},
+			conquers: {
+				gain: 0,
+				barb: 0,
+				lose: 0,
+				internal: 0,
+				sum: 0
+			},
+			_set_ally: async function () {
+				this.id = options.ally;
+				this.data = get_tribal_data("ally", this.id)?.split(",");
+				if (!this.data) { return; }
+				this.tag = decodeURIComponent(this.data[indexes.map_ally.indexOf("tag")].replaceAll("+", " "));
+				this.name = decodeURIComponent(this.data[indexes.map_ally.indexOf("name")].replaceAll("+", " "));
+				this.members = this.data[indexes.map_ally.indexOf("members")];
+				this.villages = this.data[indexes.map_ally.indexOf("villages")];
+				this.rank = this.data[indexes.map_ally.indexOf("rank")];
+				this.points = this.data[indexes.map_ally.indexOf("points")];
+				this.all_points = this.data[indexes.map_ally.indexOf("all_points")];
+				this.kill_att = get_kill_data("kill_att_tribe", this.id);
+				this.kill_def = get_kill_data("kill_def_tribe", this.id);
+				this.kill_all = get_kill_data("kill_all_tribe", this.id);
+				this.link = `https://${options.server}${market.link}/game.php?village=0&screen=info_ally&id=${this.id}`;
+				this.link_guest = `https://${options.server}${market.link}/guest.php?screen=info_ally&id=${this.id}`;
+				this.link_twstat = `${market.twstat}${options.server}/index.php?page=tribe&id=${this.id}`;
+				this.image = await get_user_image(this.link_guest);
+			},
+			_set_ally_players: function () {
+				const players = botSettings.cache[`map_player`][options.server].filter(player => player.split(",")[indexes[`map_player`].indexOf("ally")] === this.id);
+				for (let player_data of players) {
+					player_data = player_data.split(",");
+					const player_id = player_data[indexes.map_player.indexOf("id")];
+					this.players[player_id] = {
+						name: decodeURIComponent(player_data[indexes.map_player.indexOf("name")].replaceAll("+", " ")),
+						points: player_data[indexes.map_player.indexOf("points")],
+						villages: player_data[indexes.map_player.indexOf("villages")],
+						rank: player_data[indexes.map_player.indexOf("rank")],
+						link: `https://${options.server}${market.link}/game.php?village=0&screen=info_player&id=${player_id}`,
+						link_guest: `https://${options.server}${market.link}/guest.php?screen=info_player&id=${player_id}`,
+						link_twstat: `${market.twstat}${options.server}/index.php?page=player&id=${player_id}`
+					};
+				}
+			},
+			_set_ally_conquers: function () {
+				const conquers = botSettings.cache["map_conquer"][options.server];
+				const ally_players = Object.keys(this.players);
+				conquers.forEach(conquer => {
+					const new_owner = conquer.split(",")[indexes.conquer.indexOf("new_owner")];
+					const old_owner = conquer.split(",")[indexes.conquer.indexOf("old_owner")];
+					if (ally_players.includes(new_owner)) {
+						if (old_owner === "0") { this.conquers.barb++; }
+						else if (new_owner === old_owner) { }
+						else if (ally_players.includes(old_owner)) { this.conquers.internal++; }
+						else { this.conquers.gain++; }
+					}
+					else if (ally_players.includes(old_owner)) {
+						this.conquers.lose++;
+					}
+					else { }
+				});
+				this.conquers.sum = this.conquers.gain + this.conquers.barb;
+			},
+			init: async function () {
+				await this._set_ally();
+				if (!this.data) { return; }
+				this._set_ally_players();
+				this._set_ally_conquers();
+			}
+		};
+		await ally.init();
+		if (!ally.data) {
+			interaction ? interaction.editReply({ content: `${translation[`${options.type}_error`]}`, ephemeral: true }) : null;
+			return;
+		}
+		const embed_fields = {
+			title: [
+				`**${ally.tag}** | `,
+				`${options.server.toUpperCase()}`
+			].join(""),
+			description: {
+				link: [
+					`**${translation["link"]}:** `,
+					`[${translation["ingame"]}](${ally.link}) `,
+					`[${translation["guest"]}](${ally.link_guest}) `,
+					`[${translation["twstat"]}](${ally.link_twstat}) `,
+				].join(""),
+				ally: [
+					`**${ally.name}**`,
+					`**${translation["rank"]}:** ${format_number(ally.rank)}`,
+					`**${translation["points"]}:** ${format_number(ally.all_points)}`,
+					`**${translation["villages"]}:** ${format_number(ally.villages)}`,
+					`**${translation["members"]}:** ${format_number(ally.members)}`,
+					`${Object.values(ally.players).map(player => player.name).join(';')}`
+				].join("\n"),
+				conquers: [
+					`**${translation["conquers"]}:**`,
+					[
+						`${translation["gain"]}: ${format_number(ally.conquers.gain)}`,
+						`${translation["barb"]}: ${format_number(ally.conquers.barb)}`,
+						`${translation["lose"]}: ${format_number(ally.conquers.lose)}`
+					].join("‎ ‎ ‎ ‎ ‎ ‎"),
+					[
+						`${translation["internal"]}: ${format_number(ally.conquers.internal)}`,
+						`${translation["sum"]}: ${format_number(ally.conquers.sum)}`,
+					].join("‎ ‎ ‎ ‎ ‎ ‎")
+				].join("\n"),
+				kills: [
+					`**${translation["kills_text"]}:**`,
+					[
+						`**${translation["oda"]}:** `,
+						[
+							`${translation["rank"]}: ${format_number(ally.kill_att.rank)}`,
+							`${translation["kills"]}: ${format_number(ally.kill_att.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+					[
+						`**${translation["odd"]}:** `,
+						[
+							`${translation["rank"]}: ${format_number(ally.kill_def.rank)}`,
+							`${translation["kills"]}: ${format_number(ally.kill_def.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+					[
+						`**${translation["od"]}:** ‎ ‎ ‎ `,
+						[
+							`${translation["rank"]}: ${format_number(ally.kill_all.rank)}`,
+							`${translation["kills"]}: ${format_number(ally.kill_all.kills)}`,
+						].join("‎ ‎ ‎ ‎ ‎ ‎")
+					].join(""),
+				].join("\n")
+			},
+			thumbnail_url: ally.image,
+			_generate_description() {
+				return [
+					this.description.link,
+					``,
+					this.description.ally,
+					``,
+					this.description.conquers,
+					``,
+					this.description.kills
+				].join("\n");
+			}
+		};
+		const embed = new EmbedBuilder();
+		embed.setTitle(embed_fields.title);
+		embed_fields.thumbnail_url ? embed.setThumbnail(embed_fields.thumbnail_url) : null;
+		embed.setDescription(embed_fields._generate_description());
+		interaction.editReply({ embeds: [embed] })
+	}
+	function get_tribal_data(type, id, id_type = "id") {
+		switch (type) {
+			case "village":
+				return botSettings.cache[`map_${type}`][options.server].find(data => {
+					const data_split = data.split(",");
+					const x = data_split[indexes[`map_${type}`].indexOf("x")];
+					const y = data_split[indexes[`map_${type}`].indexOf("y")];
+					if (id[0].match(x) && id[1].match(y)) {
+						return data;
+					}
+				});
+			default:
+				const index_type = type.startsWith("kill") ? `kill` : `map_${type}`
+				return botSettings.cache[`map_${type}`][options.server].find(data => {
+					return data.split(",")[indexes[index_type].indexOf(id_type)] === id;
+				});
+		}
+	}
+	function get_kill_data(type, id) {
+		const kill_data = get_tribal_data(type, id)?.split(",");
+		return kill_data ? {
+			rank: kill_data[indexes.kill.indexOf("rank")],
+			kills: +kill_data[indexes.kill.indexOf("kills")]
+		}
+			: { rank: "0", kills: 0 };
+	}
+	function get_conquer_data(player) {
+		const conquers = botSettings.cache["map_conquer"][options.server];
+		const player_conquers = {
+			gain: 0,
+			barb: 0,
+			self: 0,
+			lose: 0,
+			sum: 0
+		};
+		conquers.forEach(conquer => {
+			const new_owner = conquer.split(",")[indexes.conquer.indexOf("new_owner")];
+			const old_owner = conquer.split(",")[indexes.conquer.indexOf("old_owner")];
+			if (new_owner === player.id) {
+				if (old_owner === "0") { player_conquers.barb++; }
+				else if (old_owner === new_owner) { player_conquers.self++; }
+				else { player_conquers.gain++; }
+			}
+			else if (old_owner === player.id) {
+				player_conquers.lose++;
+			}
+			else { }
+		});
+		player_conquers.sum = player_conquers.gain + player_conquers.barb;
+		return player_conquers;
+	}
+	function get_continent_number(village) {
+		const x = village[indexes.map_village.indexOf("x")];
+		const y = village[indexes.map_village.indexOf("y")];
+		return `k${y.length > 2 ? y.charAt(0) : 0}${x.length > 2 ? x.charAt(0) : 0}`;
+	}
+	async function get_user_image(link) {
+		const url = await axios.get(link);
+		const img = url.data?.split('<img src="')?.find(img => img.includes("userimage") && img.includes("large"))?.split('"')[0];
+		return img;
+	}
+	function format_number(num) {
+		return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+	}
+}
 async function setup_base_cronjobs() {
 	const base_cronjobs = [
 		{
@@ -1916,7 +3027,7 @@ async function setup_base_cronjobs() {
 			type: "update_map_data"
 		},
 		{
-			time: "10 0 * * *",
+			time: "12 */1 * * *",
 			type: "update_daily_stats"
 		},
 		{
@@ -2240,8 +3351,81 @@ async function slash_commands() {
 		}
 	}
 }
-async function ai_chatting(message, args) {
-	async function ai_messaging(message) {
+async function ai_chatting(locale, message, args) {
+	async function pbot(text, user_name, bot_name) {
+		const now = Date.now();
+		function crc(string) {
+			function get_num_array() {
+				var num;
+				var num_array = [];
+				for (var i = 0; i < 256; i++) {
+					num = i;
+					for (var j = 0; j < 8; j++) {
+						num = num & 1 ? 3988292384 ^ num >>> 1 : num >>> 1;
+					}
+					num_array[i] = num;
+				}
+				return num_array;
+			};
+			var num_array = get_num_array();
+			var num = -1;
+			for (var i = 0; i < string["length"]; i++) {
+				num = num >>> 0x8 ^ num_array[(num ^ string["charCodeAt"](i)) & 255];
+			}
+			return (num ^ -1) >>> 0;
+		};
+		function getCRCSign(date_now) {
+			return crc("public-api" + date_now + "qVxRWnespIsJg7DxFbF6N9FiQR5cjnHy" + "ygru3JcToH4dPdiN" + "H5SXOYIc00qMXPKJ");
+		};
+		const payload = [
+			`request=${encodeURIComponent(text)}`,
+			`request_1=`,
+			`answer_1=`,
+			`request_2=`,
+			`answer_2=`,
+			`request_3=`,
+			`answer_3=`,
+			`bot_name=${bot_name ? encodeURIComponent(bot_name) : "%CF%81Bot"}`,
+			`user_name=${user_name ? encodeURIComponent(user_name) : "Newcomer"}`,
+			`dialog_lang=en`,
+			`dialog_id=9d425e6c-54cf-4bde-ab49-e38a3cd20771`,
+			`dialog_greeting=false`,
+			`a=public-api`,
+			`b=${crc(now + "b")}`,
+			`c=${getCRCSign(now)}`,
+			`d=${crc(Date.now() + "d")}`,
+			`e=${Math.random()}`,
+			`t=${now}`,
+			`x=${Math.random() * 10}`
+		];
+		const options = {
+			method: 'post',
+			url: "http://p-bot.ru/api/getAnswer",
+			headers: {
+				'Accept': '*/*',
+				'Accept-Encoding': 'gzip, deflate',
+				'Content-Type': 'application/x-www-form-urlencoded',
+				'Host': 'p-bot.ru',
+				'Origin': 'http://p-bot.ru',
+				'Referer': 'http://p-bot.ru/en/',
+			},
+			data: payload.join('&'),
+		};
+		const response = await axios(options);
+		const result = await response.data;
+		const answer = {
+			answer: result.answer ?? undefined,
+			context: result.pattern.context ?? undefined,
+			request: result.pattern.request ?? undefined
+		};
+		const ignore_answers = ["no answer", "<a>"];
+		if (!ignore_answers.some(word => answer.answer.includes(word))) {
+			if (answer.answer && answer.answer.length > 1) { return answer.answer }
+		}
+		if (answer.request && answer.request.length > 1) { return answer.request }
+		if (answer.context && answer.context.length > 1) { return answer.context }
+	}
+	async function chai(message) {
 		const promise = new Promise((resolve) => {
 			const post_options = {
 				hostname: 'model-api-shdxwd54ta-nw.a.run.app',
@@ -2287,11 +3471,13 @@ async function ai_chatting(message, args) {
 		}
 		return translated_text;
 	}
-	if (message.content.toLowerCase().startsWith("hoo")) { message.content = message.content.substring(4, message.content.length) }
-	const translate_text_en = await translate("hu", "en", message.content);
-	const ai_messaging_text = await ai_messaging(`\nMe: ${translate_text_en}\nDonGábor:`);
+	if (!message.content || message.embeds.length) { return; }
+	if (message.content.includes("https://")) { return; }
+	if (message.content.toLowerCase().startsWith("hoo") && message.content.length > 5) { message.content = message.content.substring(4, message.content.length) }
+	const translate_text_en = await translate(locale, "en", message.content);
+	const ai_messaging_text = await pbot(`${translate_text_en}`, message.author.username, "DonGábor");
 	if (ai_messaging_text === undefined) { return; }
-	const back_translated_text = await translate("en", "hu", ai_messaging_text);
+	const back_translated_text = await translate("en", locale, ai_messaging_text);
 	if (!back_translated_text.substring(0, 1).match(/[:@[]/g)) { message.channel.send(back_translated_text); }
 }
 async function bot_activity_change(name, type, status) {
@@ -2359,7 +3545,7 @@ async function bot_control(interaction) {
 			stdio: 'inherit'
 		});
 		await interaction.editReply({ content: 'Child process created...!', ephemeral: true });
-		await sleep(5000);
+		await helper.sleep(5000);
 		new_child_process.unref();
 		await interaction.editReply({ content: 'Shutting down, application restarted...!', ephemeral: true });
 		process.exit();
@@ -2388,6 +3574,25 @@ async function bot_control(interaction) {
 		});
 	}
 }
+async function log_error(error, parameters) {
+	const ticket = await mongodb.ERROR_HANDLING(error, parameters);
+	if (!ticket) { return; }
+	const embed = new EmbedBuilder();
+	embed.setAuthor({
+		"name": `${ticket.id}`
+	});
+	embed.setDescription(ticket.hash);
+	if (parameters) {
+		embed.addFields({
+			name: `Parameters`,
+			value: Object.keys(parameters)
+				.map(key => `${key}: ${parameters[key]}`)
+				.join("\n")
+		});
+	}
+	embed.setTimestamp();
+	discordClient.channels.cache.get(botSettings.base_config.dev_channels.prod_errors).send({ embeds: [embed] });
+}
 async function message_delete(channel_id, message_id) {
 	discordClient.channels.fetch(channel_id).then(channel => {
 		channel.messages.delete(message_id);
@@ -2396,11 +3601,325 @@ async function message_delete(channel_id, message_id) {
 async function message_create(channel_id, message) {
 	discordClient.channels.cache.get(channel_id).send(message);
 }
+async function channel_permission_overwrite(channel_id, options) {
+	discordClient.channels.fetch(channel_id).then(channel => {
+		channel.permissionOverwrites.create(channel.guild.roles.everyone, {
+			'SendMessages': false,
+			'EmbedLinks': null,
+			'AttachFiles': false,
+		})
+	});
+}
+async function swear_words_punishment(message) {
+	const guild = botSettings.guilds_config.find(guild => guild.guild_id === message.guildId);
+	if (!guild) { return; }
+	const use_locale = guild.market ?? "en";
+	const config = guild.config.swear_words_punishment;
+	if (!guild.active) return;
+	if (guild.ban) return;
+	if (!config.enabled) return;
+	if (Object.keys(config.black_list).includes(message.author.id)) return;
+	if (config.use_global_preset) {
+		config.words = botSettings.base_config.swear_words.words;
+		config.ai_bot_chat = botSettings.base_config.swear_words.ai_bot_chat;
+		config.react_emojis = botSettings.base_config.swear_words.react_emojis;
+	}
+	const option_to_use = get_option_to_use();
+	switch (option_to_use) {
+		case "ai_bot_chat":
+			ai_chatting(use_locale, message, message.content);
+			break;
+		case "react_emojis":
+			if (!config.react_emojis.emojis.length) {
+				config.react_emojis.emojis = botSettings.base_config.react_emojis.emojis;
+			}
+			try {
+				message.react(config.react_emojis.emojis[Math.floor(Math.random() * config.react_emojis.emojis.length)]);
+			} catch (error) { }
+			break;
+		default:
+			break;
+	}
+	function get_option_to_use() {
+		const usable_options = [];
+		const luck = Math.ceil(Math.random() * 100);
+		if (Object.keys(config.ai_bot_chat.force_list).includes(message.author.id)) { return "ai_bot_chat"; }
+		if (Object.keys(config.react_emojis.force_list).includes(message.author.id)) { return "react_emojis"; }
+		if (!config.words.some(word => message.content.toLowerCase().includes(word.toLowerCase()))) { return false; }
+		if (Object.keys(config.white_list).includes(message.author.id)) { usable_options.push("ai_bot_chat", "react_emojis"); }
+		if (config.ai_bot_chat.use) {
+			if (Object.keys(config.ai_bot_chat.black_list).includes(message.author.id)) { }
+			else if (Object.keys(config.ai_bot_chat.white_list).includes(message.author.id)) { usable_options.push("ai_bot_chat"); }
+			else if (config.ai_bot_chat.percentage >= luck) { usable_options.push("ai_bot_chat"); }
+		}
+		if (config.react_emojis.use) {
+			if (Object.keys(config.ai_bot_chat.black_list).includes(message.author.id)) { }
+			else if (Object.keys(config.react_emojis.white_list).includes(message.author.id)) { usable_options.push("react_emojis"); }
+			else if (config.react_emojis.percentage >= luck) { usable_options.push("react_emojis"); }
+		}
+		return usable_options.length ? usable_options[Math.floor(Math.random() * usable_options.length)] : false;
+	}
+}
+async function set_swear_words(interaction) {
+	const use_locale = helper.translation_locale("swear_words", interaction.locale);
+	const translation = botSettings.base_config.translations.swear_words[use_locale];
+	const options = {
+		guild: interaction.guild.id,
+		guild_name: interaction.guild.name,
+		market: use_locale,
+		command: interaction.options.getSubcommand()
+	};
+	let additional_options, data, words, no_option_given;
+	const guild_swear_words = botSettings.guilds_config.find(guild => guild.guild_id === interaction.guild.id).config.swear_words_punishment;
+	switch (options.command) {
+		case "modify":
+			additional_options = {
+				enable: interaction.options.getBoolean("enable") ?? undefined,
+				use_default: interaction.options.getBoolean("use_default") ?? undefined,
+				use_ai_chat: interaction.options.getBoolean("use_ai_chat") ?? undefined,
+				use_react_emoji: interaction.options.getBoolean("use_react_emoji") ?? undefined,
+				add_words: interaction.options.getString("add_words") ?? undefined,
+				delete_words: interaction.options.getString("delete_words") ?? undefined,
+				add_emoji: interaction.options.getString("add_emoji") ?? undefined,
+				delete_emoji: interaction.options.getString("delete_emoji") ?? undefined,
+				ai_chat_ratio: interaction.options.getNumber("ai_chat_ratio") ?? undefined,
+				react_emoji_ratio: interaction.options.getNumber("react_emoji_ratio") ?? undefined
+			};
+			no_option_given = [...new Set(Object.values(additional_options))].every(option => option === undefined);
+			if (no_option_given) {
+				interaction.editReply({ content: `${translation["no_option_given"]}`, ephemeral: true });
+				return;
+			}
+			if (typeof (additional_options.enable) !== "undefined") { guild_swear_words.enabled = additional_options.enable; }
+			if (typeof (additional_options.use_default) !== "undefined") { guild_swear_words.use_global_preset = additional_options.use_default; }
+			if (typeof (additional_options.use_ai_chat) !== "undefined") { guild_swear_words.ai_bot_chat.use = additional_options.use_ai_chat; }
+			if (typeof (additional_options.use_react_emoji) !== "undefined") { guild_swear_words.react_emojis.use = additional_options.use_react_emoji; }
+			if (typeof (additional_options.add_words) !== "undefined") {
+				guild_swear_words.words = [...new Set(guild_swear_words.words.concat(additional_options.add_words.split(",")))];
+			}
+			if (typeof (additional_options.delete_words) !== "undefined") {
+				words = additional_options.delete_words.split(",");
+				guild_swear_words.words = guild_swear_words.words.filter(word => !words.includes(word));
+			}
+			if (typeof (additional_options.add_emoji) !== "undefined") {
+				guild_swear_words.react_emojis.emojis = [...new Set(guild_swear_words.react_emojis.emojis.concat(additional_options.add_emoji.replaceAll(" ", "").split(",")))];
+			}
+			if (typeof (additional_options.delete_emoji) !== "undefined") {
+				words = additional_options.delete_emoji.replaceAll(" ", "").split(",");
+				guild_swear_words.react_emojis.emojis = guild_swear_words.react_emojis.emojis.filter(word => !words.includes(word));
+			}
+			if (typeof (additional_options.ai_chat_ratio) !== "undefined") { guild_swear_words.ai_bot_chat.percentage = additional_options.ai_chat_ratio; }
+			if (typeof (additional_options.react_emoji_ratio) !== "undefined") { guild_swear_words.react_emojis.percentage = additional_options.react_emoji_ratio; }
+			data = {
+				guild_id: interaction.guild.id,
+				swear_words_punishment: guild_swear_words
+			};
+			await mongodb.UPDATE_GUILD_CONFIG("swear_words_punishment", data);
+			interaction.editReply({ content: `${translation["modified"]}`, ephemeral: true });
+			break;
+		case "list":
+			additional_options = {
+				action: interaction.options.getString("action") ?? undefined,
+				type: interaction.options.getString("type") ?? undefined,
+				user: interaction.options.getUser("user") ?? undefined
+			};
+			no_option_given = [...new Set(Object.values(additional_options))].every(option => option === undefined);
+			switch (no_option_given) {
+				case true:
+					if (guild_swear_words.use_global_preset) {
+						guild_swear_words.words = botSettings.base_config.swear_words.words;
+						guild_swear_words.ai_bot_chat = botSettings.base_config.swear_words.ai_bot_chat;
+						guild_swear_words.react_emojis = botSettings.base_config.swear_words.react_emojis;
+					}
+					const fields = [
+						{
+							name: `${translation.list_embed.basic_settings}`,
+							value: [
+								`**${translation.list_embed.enabled}**: ${translation.list_embed[String(guild_swear_words.enabled)]}`,
+								`**${translation.list_embed.use_global_preset}**: ${translation.list_embed[String(guild_swear_words.use_global_preset)]}`,
+								`**${translation.list_embed.words}**: ${guild_swear_words.words.join(",")}`,
+								`**${translation.list_embed.black_list}**: ${Object.values(guild_swear_words.black_list).join(",")}`,
+								`**${translation.list_embed.white_list}**: ${Object.values(guild_swear_words.white_list).join(",")}`
+							].join("\n")
+						},
+						{
+							name: `${translation.list_embed.ai_bot_chat_settings}`,
+							value: [
+								`**${translation.list_embed.use}**: ${translation.list_embed[String(guild_swear_words.ai_bot_chat.use)]}`,
+								`**${translation.list_embed.percentage}**: ${guild_swear_words.ai_bot_chat.percentage}`,
+								`**${translation.list_embed.black_list}**: ${Object.values(guild_swear_words.ai_bot_chat.black_list).join(",")}`,
+								`**${translation.list_embed.white_list}**: ${Object.values(guild_swear_words.ai_bot_chat.white_list).join(",")}`,
+								`**${translation.list_embed.force_list}**: ${Object.values(guild_swear_words.ai_bot_chat.force_list).join(",")}`
+							].join("\n")
+						},
+						{
+							name: `${translation.list_embed.react_emojis_settings}`,
+							value: [
+								`**${translation.list_embed.use}**: ${translation.list_embed[String(guild_swear_words.react_emojis.use)]}`,
+								`**${translation.list_embed.percentage}**: ${guild_swear_words.react_emojis.percentage}`,
+								`**${translation.list_embed.emojis}**: ${guild_swear_words.react_emojis.emojis.join(" ")}`,
+								`**${translation.list_embed.black_list}**: ${Object.values(guild_swear_words.react_emojis.black_list).join(",")}`,
+								`**${translation.list_embed.white_list}**: ${Object.values(guild_swear_words.react_emojis.white_list).join(",")}`,
+								`**${translation.list_embed.force_list}**: ${Object.values(guild_swear_words.react_emojis.force_list).join(",")}`
+							].join("\n")
+						}
+					];
+					const embed = new EmbedBuilder();
+					embed.setTitle(translation.list_embed.title);
+					embed.addFields(fields);
+					interaction.editReply({ embeds: [embed], ephemeral: true });
+					break;
+				case false:
+					if (!additional_options.action || !additional_options.type || !additional_options.user) {
+						if (additional_options.action === "reset")
+							var reset_check = additional_options.action === "reset" && !!additional_options.type;
+						switch (reset_check) {
+							case true:
+								break;
+							default:
+								interaction.editReply({ content: `${translation["not_all_option_given"]}`, ephemeral: true });
+								return;
+						}
+					}
+					const variable_name = `guild_swear_words${additional_options.type}`;
+					switch (additional_options.action) {
+						case "add":
+							eval(`${variable_name}["${additional_options.user.id}"] = "${additional_options.user.username}";`);
+							break;
+						case "delete":
+							eval(`delete ${variable_name}["${additional_options.user.id}"]`);
+							break;
+						case "reset":
+							eval(`${variable_name} = {};`);
+							break;
+					}
+					data = {
+						guild_id: interaction.guild.id,
+						swear_words_punishment: guild_swear_words
+					};
+					await mongodb.UPDATE_GUILD_CONFIG("swear_words_punishment", data);
+					interaction.editReply({ content: `${translation["modified"]}`, ephemeral: true });
+					break;
+			}
+	}
+}
+async function set_guild_settings(interaction) {
+	const use_locale = helper.translation_locale("guild_settings", interaction.locale);
+	const translation = botSettings.base_config.translations.guild_settings[use_locale];
+	const options = {
+		guild: interaction.guild.id,
+		guild_name: interaction.guild.name,
+		market: use_locale,
+		command: interaction.options.getSubcommand()
+	};
+	let additional_options, no_option_given, fields, embed;
+	const errors = [];
+	const guild = botSettings.guilds_config.find(guild => guild.guild_id === interaction.guild.id);
+	switch (options.command) {
+		case "modify":
+			additional_options = {
+				active: interaction.options.getBoolean("active") ?? undefined,
+				password: interaction.options.getString("password") ?? undefined,
+				market: interaction.options.getString("market") ?? undefined,
+				language: interaction.options.getString("language") ?? undefined,
+				global_world: interaction.options.getString("global_world") ?? undefined,
+				global_guild: interaction.options.getString("global_guild") ?? undefined
+			};
+			no_option_given = [...new Set(Object.values(additional_options))].every(option => option === undefined);
+			if (no_option_given) {
+				interaction.editReply({ content: `${translation["no_option_given"]}`, ephemeral: true });
+				return;
+			}
+			if (typeof (additional_options.active) !== "undefined") { guild.active = additional_options.active; }
+			if (typeof (additional_options.password) !== "undefined") {
+				if (interaction.member.guild.ownerId === interaction.user.id) {
+					guild.pass = additional_options.password;
+				}
+			}
+			if (typeof (additional_options.market) !== "undefined") {
+				const enabled_markets = botSettings.base_config.markets.filter(market => market.enabled === true).map(market => market.market);
+				if (!enabled_markets.includes(additional_options.market)) {
+					errors.push(translation["market_error"]);
+				}
+				guild.market = additional_options.market;
+			}
+			if (typeof (additional_options.language) !== "undefined") {
+				const market_translations = Object.keys(botSettings.base_config.translations.guild_settings);
+				if (market_translations.includes(additional_options.language)) {
+					guild.preferred_language = additional_options.language;
+				}
+				else {
+					errors.push(translation["translation_error"]);
+				}
+			}
+			if (typeof (additional_options.global_world) !== "undefined") { guild.global_world = additional_options.global_world; }
+			if (typeof (additional_options.global_guild) !== "undefined") { guild.global_guild = additional_options.global_guild; }
+
+			const data = {
+				guild_id: interaction.guild.id,
+				guild_name: interaction.guild.name,
+				active: guild.active,
+				pass: guild.pass,
+				market: guild.market,
+				preferred_language: guild.preferred_language,
+				global_world: guild.global_world,
+				global_guild: guild.global_guild
+			}
+			await mongodb.UPDATE_GUILD_CONFIG("guild_settings", data);
+			fields = [
+				{
+					name: translation["errors"],
+					value: errors.join("\n")
+				}
+			];
+			embed = new EmbedBuilder();
+			embed.setTitle(translation["modified"]);
+			errors.length ? embed.addFields(fields) : null;
+			interaction.editReply({ embeds: [embed], ephemeral: true });
+			break;
+		case "list":
+			fields = [
+				{
+					name: `\u200B`,
+					value: [
+						`**${translation.list_embed.active}**: ${translation.list_embed[String(guild.active)]}`,
+						`**${translation.list_embed.password}**: ${interaction.member.guild.ownerId === interaction.user.id ? guild.pass : translation.list_embed.errors.password}`,
+						`**${translation.list_embed.ban}**: ${translation.list_embed[String(guild.ban)]} ${guild.ban ? guild.ban_reason : ""}`,
+						`**${translation.list_embed.market}**: ${guild.market}`,
+						`**${translation.list_embed.preferred_language}**: ${guild.preferred_language}`,
+						`**${translation.list_embed.global_world}**: ${guild.global_world}`,
+						`**${translation.list_embed.global_guild}**: ${guild.global_guild}`,
+						`**${translation.list_embed.coord_info}**: ${translation.list_embed[String(guild.config.coord_info.active)]}`,
+					].join("\n")
+				}
+			];
+			embed = new EmbedBuilder();
+			embed.setTitle(translation.list_embed.title);
+			embed.addFields(fields);
+			interaction.editReply({ embeds: [embed], ephemeral: true });
+			break;
+	}
+}
+
+function bot_invite_embed(channel) {
+	const embed = new EmbedBuilder();
+	embed.setTitle("HOO Discord bot");
+	embed.setDescription(`Sziasztok\nHOO discord botot aki szeretné meg tudja hívni más szerverekre is.\nJelenleg amit tud: foglalásjelző, statisztikák, térképek (Paul bot naponta frissül)`);
+	embed.setColor("Aqua");
+	const button = new ButtonBuilder()
+		.setLabel('Bot meghívása')
+		.setURL('https://discord.com/api/oauth2/authorize?client_id=976417736769032202&permissions=1644905888887&scope=bot%20applications.commands')
+		.setStyle(ButtonStyle.Link);
+	const row = new ActionRowBuilder()
+		.addComponents(button);
+	discordClient.channels.cache.get(`${channel}`).send({ embeds: [embed], components: [row] });
+
+}
 // error handling
 process.on("uncaughtException", (error) => {
 	if (DEV) { console.log(error); }
 	else {
-		discordClient.channels.cache.get(botSettings.base_config.dev_channels.prod_errors).send(error.toString());
+		log_error(error);
 	}
 })
 async function start() {

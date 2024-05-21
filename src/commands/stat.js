@@ -55,55 +55,183 @@ module.exports = {
                             hu: "méret"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika mérete"
+                            hu: "Statisztika mérete"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("ally")
-                        .setDescription("tribe tag")
+                        .setDescription("Tribe tag")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "klán"
                         })
                         .setDescriptionLocalizations({
-                            hu: "klán név rövidítés"
+                            hu: "Klán név rövidítés"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("type")
-                        .setDescription("chart type")
+                        .setDescription("Chart type")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "típus"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika típusa"
+                            hu: "Statisztika típusa"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("style")
-                        .setDescription("chart style")
+                        .setDescription("Chart style")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "stílus"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika stílusa"
+                            hu: "Statisztika stílusa"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("color")
-                        .setDescription("chart backgound color")
+                        .setDescription("Chart backgound color")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "szín"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika háttérszíne"
+                            hu: "Statisztika háttérszíne"
+                        })
+                )
+        )
+        .addSubcommand(command =>
+            command.setName("monthly")
+                .setDescription("Creating monthly stats!")
+                .setNameLocalizations({
+                    hu: "havi"
+                })
+                .setDescriptionLocalizations({
+                    hu: "Havi statisztikákat készít!"
+                })
+                .addStringOption(option =>
+                    option.setName("scope")
+                        .setDescription("Scope of stat")
+                        .setRequired(true)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "hatókör"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Stat hatókör"
+                        })
+                )
+                .addStringOption(option =>
+                    option.setName("server")
+                        .setDescription("Server where it creates stats")
+                        .setMinLength(4)
+                        .setMaxLength(5)
+                        .setRequired(true)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "szerver"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Szerver ahonnan statot készít"
+                        })
+                )
+                .addStringOption(option =>
+                    option.setName("player")
+                        .setDescription("Player name")
+                        .setRequired(false)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "játékos"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Játékos neve"
+                        })
+                )
+                .addStringOption(option =>
+                    option.setName("ally")
+                        .setDescription("Tribe tag. Ally separator with &")
+                        .setRequired(false)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "klán"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Klán név rövidítés. Klán elválasztó & jellel"
+                        })
+                )
+                .addNumberOption(option =>
+                    option.setName("size")
+                        .setDescription("Size of stat")
+                        .setMinValue(1)
+                        .setMaxValue(25)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "méret"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Statisztika mérete"
+                        })
+                )
+                .addNumberOption(option =>
+                    option.setName("month")
+                        .setDescription("How many months")
+                        .setMinValue(1)
+                        .setMaxValue(12)
+                        .setChoices(
+                            { name: "1", value: 1 },
+                            { name: "2", value: 2 },
+                            { name: "3", value: 3 },
+                            { name: "6", value: 6 },
+                            { name: "12", value: 12 }
+                        )
+                        .setNameLocalizations({
+                            hu: "hónap"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Hónapok száma"
+                        })
+                )
+                .addStringOption(option =>
+                    option.setName("type")
+                        .setDescription("Chart type")
+                        .setRequired(false)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "típus"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Statisztika típusa"
+                        })
+                )
+                .addStringOption(option =>
+                    option.setName("style")
+                        .setDescription("Chart style")
+                        .setRequired(false)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "stílus"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Statisztika stílusa"
+                        })
+                )
+                .addStringOption(option =>
+                    option.setName("color")
+                        .setDescription("Chart backgound color")
+                        .setRequired(false)
+                        .setAutocomplete(true)
+                        .setNameLocalizations({
+                            hu: "szín"
+                        })
+                        .setDescriptionLocalizations({
+                            hu: "Statisztika háttérszíne"
                         })
                 )
         )
@@ -152,55 +280,55 @@ module.exports = {
                             hu: "méret"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika mérete"
+                            hu: "Statisztika mérete"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("ally")
-                        .setDescription("tribe tag")
+                        .setDescription("Tribe tag")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "klán"
                         })
                         .setDescriptionLocalizations({
-                            hu: "klán név rövidítés"
+                            hu: "Klán név rövidítés"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("type")
-                        .setDescription("chart type")
+                        .setDescription("Chart type")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "típus"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika típusa"
+                            hu: "Statisztika típusa"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("style")
-                        .setDescription("chart style")
+                        .setDescription("Chart style")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "stílus"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika stílusa"
+                            hu: "Statisztika stílusa"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("color")
-                        .setDescription("chart backgound color")
+                        .setDescription("Chart backgound color")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "szín"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika háttérszíne"
+                            hu: "Statisztika háttérszíne"
                         })
                 )
         )
@@ -237,47 +365,47 @@ module.exports = {
                             hu: "méret"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika mérete"
+                            hu: "Statisztika mérete"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("ally")
-                        .setDescription("ally tribe tag. Ally separator with &")
+                        .setDescription("Ally tribe tag. Ally separator with &")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "szövetséges"
                         })
                         .setDescriptionLocalizations({
-                            hu: "szövetséges klán név rövidítés. Klán elválasztó & jellel"
+                            hu: "Szövetséges klán név rövidítés. Klán elválasztó & jellel"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("enemy")
-                        .setDescription("enemy tribe tag. Ally separator with &")
+                        .setDescription("Enemy tribe tag. Ally separator with &")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "ellenfél"
                         })
                         .setDescriptionLocalizations({
-                            hu: "ellenfél klán név rövidítés. Klán elválasztó & jellel"
+                            hu: "Ellenfél klán név rövidítés. Klán elválasztó & jellel"
                         })
                 )
                 .addBooleanOption(option =>
                     option.setName("barbarian")
-                        .setDescription("show barbarian conquers")
+                        .setDescription("Show barbarian conquers")
                         .setRequired(false)
                         .setNameLocalizations({
                             hu: "barbár"
                         })
                         .setDescriptionLocalizations({
-                            hu: "barbár foglalások megjelenítése"
+                            hu: "Barbár foglalások megjelenítése"
                         })
                 )
                 .addIntegerOption(option =>
                     option.setName("continent")
-                        .setDescription("show conquers only on this continent")
+                        .setDescription("Show conquers only on this continent")
                         .setRequired(false)
                         .setAutocomplete(false)
                         .setMinValue(0)
@@ -286,67 +414,67 @@ module.exports = {
                             hu: "kontinens"
                         })
                         .setDescriptionLocalizations({
-                            hu: "foglalások mutatása csak ezen a kontinensen"
+                            hu: "Foglalások mutatása csak ezen a kontinensen"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("from")
-                        .setDescription("show conquers from date. example: 2000.01.01 or 01.01.2000, separators supported:  _,./:;-")
+                        .setDescription("Show conquers from date. example: 2000.01.01 or 01.01.2000, separators supported:  _,./:;-")
                         .setRequired(false)
                         .setAutocomplete(false)
                         .setNameLocalizations({
                             hu: "ettől"
                         })
                         .setDescriptionLocalizations({
-                            hu: "foglalások mutatása dátumtól. példa: 2000.01.01 vagy 01.01.2000, támogatott elválasztók:  _,./:;-"
+                            hu: "Foglalások mutatása dátumtól. példa: 2000.01.01 vagy 01.01.2000, támogatott elválasztók:  _,./:;-"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("to")
-                        .setDescription("show conquers till date. example: 2000.01.01 or 01.01.2000, separators supported:  _,./:;-")
+                        .setDescription("Show conquers till date. example: 2000.01.01 or 01.01.2000, separators supported:  _,./:;-")
                         .setRequired(false)
                         .setAutocomplete(false)
                         .setNameLocalizations({
                             hu: "eddíg"
                         })
                         .setDescriptionLocalizations({
-                            hu: "foglalások mutatása dátumig. példa: 2000.01.01 vagy 01.01.2000, támogatott elválasztók:  _,./:;-"
+                            hu: "Foglalások mutatása dátumig. példa: 2000.01.01 vagy 01.01.2000, támogatott elválasztók:  _,./:;-"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("type")
-                        .setDescription("chart type")
+                        .setDescription("Chart type")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "típus"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika típusa"
+                            hu: "Statisztika típusa"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("style")
-                        .setDescription("chart style")
+                        .setDescription("Chart style")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "stílus"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika stílusa"
+                            hu: "Statisztika stílusa"
                         })
                 )
                 .addStringOption(option =>
                     option.setName("color")
-                        .setDescription("chart backgound color")
+                        .setDescription("Chart backgound color")
                         .setRequired(false)
                         .setAutocomplete(true)
                         .setNameLocalizations({
                             hu: "szín"
                         })
                         .setDescriptionLocalizations({
-                            hu: "statisztika háttérszíne"
+                            hu: "Statisztika háttérszíne"
                         })
                 )
         ),

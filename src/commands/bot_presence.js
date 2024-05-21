@@ -32,7 +32,7 @@ module.exports = {
                     { name: "Watching", value: "Watching" },
                     { name: "Competing", value: "Competing" }
                 )
-                .setRequired(true)
+                .setRequired(false)
                 .setNameLocalizations({
                     hu: "típus"
                 })
@@ -49,7 +49,7 @@ module.exports = {
                     { name: "dnd", value: "dnd" },
                     { name: "invisible", value: "invisible" }
                 )
-                .setRequired(true)
+                .setRequired(false)
                 .setNameLocalizations({
                     hu: "státusz"
                 })
