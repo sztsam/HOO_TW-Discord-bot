@@ -3,11 +3,10 @@
 Bot runners can control the bot on the fly with this command.
 
 In every case there is a sure parameter that has to be true if you really want to make changes in the runtime.
+<br>Only the bot developer can use this command!
 
-Only the bot developer can use this command!
 
 The command has three subcommands: shutdown, restart, update, script
-
 
 ## Shutdown
 
@@ -32,9 +31,9 @@ Restart the bot
 ## Update
 
 Update the bot with package.
-Bot will unpack the update.zip to the src folder.
-The update folder must use a file structure like src folder!
-Zip the files inside the update folder and apply update
+<br>Bot will unpack the update.zip to the src folder.
+<br>The update folder must use a file structure like src folder!
+<br>Zip the files inside the update folder and apply update
 
 >/bot control update \<package> \<sure>
 
@@ -46,7 +45,7 @@ Zip the files inside the update folder and apply update
 ## Script
 
 Execute a script that will run and log to the discord interaction as response.
-The script must be a .js file!
+<br>The script must be a .js file!
 
 >/bot control script \<code> \<sure>
 

@@ -1,7 +1,7 @@
 # Info
 
 This command shows information about ally, player and village.
-For all subcommands server parameter is optional! If you did not set a global server to a channel or server then it is required!
+<br>For all subcommands server parameter is optional! If you did not set a global server to a channel or server then it is required!
 
 The command has three subcommands: player, ally, village
 
@@ -35,7 +35,8 @@ Show information about the ally.
 
 Show information about the village.
 
-These coordinates can be inside bigger texts or even several coordinates in one message. The coords are separated by players.
+These coordinates can be inside bigger texts or even several coordinates in one message.
+<br>The coords are separated by players.
 
 >/info village \<coord> \<server>
 

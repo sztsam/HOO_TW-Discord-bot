@@ -1,16 +1,16 @@
 # Map generation
 
 This command generates a custom world map.
-You can make maps with many different options.
-Ally families are supported. If no ally family is set to the server then uses the default first 15 ally.
+<br>You can make maps with many different options.
+<br>Ally families are supported. If no ally family is set to the server then uses the default first 15 ally.
 
 The command has three subcommands: Conquer, Ally, Player
 
 ## Conquer
 
 Show conquers on the map.
-Conquers are marked with bigger rectangles. You can either choose live data or non live data. (Non live data is reverted back to full hour or midnight)
-Specific dates can also be used.
+<br>Conquers are marked with bigger rectangles. You can either choose live data or non live data. (Non live data is reverted back to full hour or midnight)
+<br>Specific dates can also be used.
 
 >/map conquer \<server> \<type> \<size> \<custom list> \<ally family> \<barbarian> \<player> \<politic> \<vegetation> \<from last x time> \<from> \<to> \<live>
 

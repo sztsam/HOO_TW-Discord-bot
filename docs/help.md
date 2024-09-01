@@ -1,9 +1,10 @@
 # Help
 
 Help the bot developer.
-You can send ideas to enhance the bot with cool functionalities.
-Report a bug so it will be fixed soon.
-Visit the documentation.
+<br>You can send ideas to enhance the bot with cool functionalities.
+<br>Report a bug so it will be fixed soon.
+<br>Visit the documentation.
+
 
 The command has three subcommands: bug, idea, documentation
 

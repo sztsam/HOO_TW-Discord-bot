@@ -10,7 +10,9 @@ The command has five subcommands: Add, Delete, Modify, List, Settings
 
 ## Add
 
-You need to add a job for each channel or ally. It is recommended to make separate channels for each ally. You can add multiple allies to a job.
+You need to add a job for each channel or ally.
+<br>It is recommended to make separate channels for each ally.
+<br>You can add multiple allies to a job.
 
 >/ennoblements add \<server> \<tribe tag> \<gain> \<loss> \<self> \<internal> \<barbarian> \<continent> \<channel> \<play>
 
@@ -30,7 +32,7 @@ You need to add a job for each channel or ally. It is recommended to make separa
 ## Delete
 
 The following command removes the monitors by ID or remove all monitors from the server.
-If no parameter is provided then remove all monitors from the current channel
+<br>If no parameter is provided then remove all monitors from the current channel
 
 >/ennoblements delete \<job id> \<all>
 
@@ -62,7 +64,7 @@ You may need to modify a job later on. With this command you can modify any job 
 ## List
 
 The following command lists all the monitors set to the server or a specific channel
-If no parameter is provided then lists all the monitors set to the server
+<br>If no parameter is provided then lists all the monitors set to the server
 
 ![ennoblement_list](images/ennoblements/list.jpg "ennoblement_list")
 

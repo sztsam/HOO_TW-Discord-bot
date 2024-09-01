@@ -2,7 +2,9 @@
 
 *You need "Administrator" permission to use these commands.*
 
-You can set the bot discord guild settings as you like on your discord server. If you are not the server owner a password is required in order to change anything.
+You can set the bot discord guild settings as you like on your discord server.
+<br>If you are not the server owner a password is required in order to change anything.
+
 
 The command has two subcommands: modify, list
 
