@@ -1,6 +1,9 @@
-# HOO TW Discord Bot
+# ![HOO banner](images/banner.jpg "HOO banner")
+
+<!--# ![HOO](images/hoo.png "HOO") TW Discord Bot -->
 
 HOO is a Tribal Wars bot that enchances gameplay using discord.
+
 
 Features:
   - Multi-region and multi-world support
