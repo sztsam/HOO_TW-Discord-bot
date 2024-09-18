@@ -1,17 +1,17 @@
-# Ally family
+# Family tribes
 
-TribalWars community can set ally families for each server. This will affect some of the commands if ally family is enabled.
+TribalWars community can set family tribes for each server. This will affect some of the commands if family tribe is enabled.
 
-Remember, everyone can set ally families! Please use it with care!
+Remember, everyone can set family tribes! Please use it with care!
 
 The command has three subcommands: add, delete, list
 
 
 ## Add
 
-Add ally family to global config.
+Add family tribe to global config.
 
->/ally family add \<server> \<custom list>
+>/family tribe add \<server> \<custom list>
 
 #### Parameters
 
@@ -20,9 +20,9 @@ Add ally family to global config.
 
 ## Delete
 
-Delete ally family from global config.
+Delete family tribe from global config.
 
->/ally family delete \<server> \<family>
+>/family tribe delete \<server> \<family>
 
 #### Parameters
 
@@ -31,9 +31,9 @@ Delete ally family from global config.
 
 ## List
 
-List ally family from global config.
+List family tribes from global config.
 
->/ally family list \<server>
+>/family tribe list \<server>
 
 #### Parameters
 

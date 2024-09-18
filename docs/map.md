@@ -2,7 +2,7 @@
 
 This command generates a custom world map.
 <br>You can make maps with many different options.
-<br>Ally families are supported. If no ally family is set to the server then uses the default first 15 ally.
+<br>Family tribes are supported. If no family tribe is set to the server then uses the default first 15 ally.
 
 The command has three subcommands: Conquer, Ally, Player
 
@@ -12,7 +12,7 @@ Show conquers on the map.
 <br>Conquers are marked with bigger rectangles. You can either choose live data or non live data. (Non live data is reverted back to full hour or midnight)
 <br>Specific dates can also be used.
 
->/map conquer \<server> \<type> \<size> \<custom list> \<ally family> \<barbarian> \<player> \<politic> \<vegetation> \<from last x time> \<from> \<to> \<live>
+>/map conquer \<server> \<type> \<size> \<custom list> \<family tribe> \<barbarian> \<player> \<politic> \<vegetation> \<from last x time> \<from> \<to> \<live>
 
 #### Parameters
 
@@ -20,7 +20,7 @@ Show conquers on the map.
 - type: *Choose a highlight type. It can be player/ally<br>Required: false, Type: string, Autocomplete: true, Default: ally*
 - size: *Amount of data to display<br>Required: false, Type: number, Autocomplete: true, value: 2-20, Default: 15*
 - custom list: *This should be set to the tribe(s)/player(s) you want to show on map. <br>Separated by & you can select more than one<br>syntax: {ally1&ally2} example: HELL&HELL2<br>Required: false, Type: string, Autocomplete: true*
-- ally family: *Use the server ally family setting if available<br>Required: false, Type: boolean, Default: false*
+- family tribe: *Use the server family tribe setting if available<br>Required: false, Type: boolean, Default: false*
 - barbarian: *Show barbarian villages<br>Required: false, Type: boolean, Default: true*
 - player: *Show non highlight players<br>Required: false, Type: boolean, Default: true*
 - politic: *Show political area<br>Required: false, Type: boolean, Default: false*
@@ -36,14 +36,14 @@ Show conquers on the map.
 
 Show allies on the map
 
->/map ally \<server> \<size> \<custom list> \<ally family> \<barbarian> \<player> \<politic> \<vegetation>
+>/map ally \<server> \<size> \<custom list> \<family tribe> \<barbarian> \<player> \<politic> \<vegetation>
 
 #### Parameters
 
 - server: *Choose a server from the currently running servers.<br>If the server you want not in the list your market is not enabled. Please contact me.  <br>syntax: {market}{server} example: en121<br>Required: true, Type: string, Autocomplete: true*
 - size: *Amount of data to display<br>Required: false, Type: number, Autocomplete: true, value: 2-20, Default: 15*
 - custom list: *This should be set to the tribe(s) you want to show on map. <br>Separated by & you can select more than one<br>syntax: {ally1&ally2} example: HELL&HELL2<br>Required: false, Type: string, Autocomplete: true*
-- ally family: *Use the server ally family setting if available<br>Required: false, Type: boolean, Default: false*
+- family tribe: *Use the server family tribe setting if available<br>Required: false, Type: boolean, Default: false*
 - barbarian: *Show barbarian villages<br>Required: false, Type: boolean, Default: true*
 - player: *Show non highlight players<br>Required: false, Type: boolean, Default: true*
 - politic: *Show political area<br>Required: false, Type: boolean, Default: false*

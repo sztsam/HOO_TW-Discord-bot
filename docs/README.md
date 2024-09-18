@@ -15,5 +15,7 @@ Features:
   - Circular lists
   - Graph generation
   - World map generation
+  - Report image posting
+  - Report store
   - AI chat
   - Punish users / swear words
