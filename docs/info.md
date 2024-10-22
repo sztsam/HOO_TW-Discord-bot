@@ -3,7 +3,7 @@
 This command shows information about ally, player and village.
 <br>For all subcommands server parameter is optional! If you did not set a global server to a channel or server then it is required!
 
-The command has three subcommands: player, ally, village
+The command has four subcommands: player, ally, village, server
 
 ## Player
 
@@ -46,3 +46,16 @@ These coordinates can be inside bigger texts or even several coordinates in one 
 - server: *Choose a server from the currently running servers.<br>If the server you want not in the list your market is not enabled. Please contact me.  <br>syntax: {market}{server} example: en121<br>Required: false, Type: string, Autocomplete: true*
 
 ![info_village](images/info/coord.jpg "info_village")
+
+## Server
+
+Show information about the server settings.
+<br>You can view server configuration translated to your language!
+
+>/info server \<server>
+
+#### Parameters
+
+- server: *Choose a server from the currently running servers.<br>If the server you want not in the list your market is not enabled. Please contact me.  <br>syntax: {market}{server} example: en121<br>Required: false, Type: string, Autocomplete: true*
+
+![info_server](images/info/server.jpg "info_server")

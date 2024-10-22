@@ -5,6 +5,10 @@ You can get good information about the village without seeing the report.
 
 To store a report, you simply need to post the public share url/s or mass report format ([report][/report]) format in the chat and the bot will pick it up and store it.
 
+After posting the public share url the bot will send an action row to know whether to save attacker or defender information or just generate a report image without saving into the database.
+<br>Only the author can select the type!
+<br>![report_type](images/report/report_type.jpg)
+
 Remember, the bot first checks the channel world, then the global world!
 
 Report generation does not support multiple languages, only market language!
